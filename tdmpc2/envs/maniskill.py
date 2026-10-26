@@ -1,4 +1,5 @@
 import gymnasium as gym
+import gym as legacy_gym
 import numpy as np
 from envs.wrappers.timeout import Timeout
 
@@ -29,9 +30,9 @@ MANISKILL_TASKS = {
 }
 
 
-class ManiSkillWrapper(gym.Wrapper):
+class ManiSkillWrapper(gym.Env):
 	def __init__(self, env, cfg):
-		super().__init__(env)
+		super().__init__()
 		self.env = env
 		self.cfg = cfg
 		self.observation_space = self.env.observation_space
@@ -58,7 +59,7 @@ class ManiSkillWrapper(gym.Wrapper):
 	def unwrapped(self):
 		return self.env.unwrapped
 
-	def render(self, args, **kwargs):
+	def render(self, *args, **kwargs):
 		return self.env.render(mode='cameras')
 
 
@@ -70,7 +71,7 @@ def make_env(cfg):
 		raise ValueError('Unknown task:', cfg.task)
 	assert cfg.obs == 'state', 'This task only supports state observations.'
 	task_cfg = MANISKILL_TASKS[cfg.task]
-	env = gym.make(
+	env = legacy_gym.make(
 		task_cfg['env'],
 		obs_mode='state',
 		control_mode=task_cfg['control_mode'],
@@ -78,5 +79,4 @@ def make_env(cfg):
 	)
 	env = ManiSkillWrapper(env, cfg)
 	env = Timeout(env, max_episode_steps=100)
-	env.max_episode_steps = env._max_episode_steps
 	return env
