@@ -1,0 +1,25 @@
+{
+  "tests_run": 36,
+  "passed": 32,
+  "skipped": [
+    {
+      "test": "test_maniskill_integration.BenchmarkSimulatorTests.test_all_action_shifts_from_same_state",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_maniskill_integration.BenchmarkSimulatorTests.test_physics_readback_restore_and_contact_response",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_maniskill_integration.SimulatorTests.test_nominal_and_actual_shift",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_shift_config.ConfigTests.test_every_preset_composes_and_constructs",
+      "reason": "requires hydra-core to validate CLI composition"
+    }
+  ],
+  "failures": [],
+  "baseline_revision": "67be304a26508976a146af5556254a5869ba7574",
+  "scope": "Unit/API fixtures and audit-tool tests; not real simulator validation"
+}

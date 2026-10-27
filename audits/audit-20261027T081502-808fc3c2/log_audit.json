@@ -1,0 +1,6 @@
+{
+  "runs": [],
+  "status": "UNVERIFIED",
+  "scope": "saved_log_audit_only",
+  "note": "PASS applies to each named check only; historical physical validity requires independent simulator tests."
+}
