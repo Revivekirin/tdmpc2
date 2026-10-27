@@ -3,21 +3,110 @@
   "episodes": 50,
   "seed": 1,
   "task": "pick-cube",
-  "model_size": 1,
+  "model_size": 5,
   "conditions": [
-    {"id": "E0", "preset": "nominal", "overrides": []},
-    {"id": "E1-g09", "preset": "action_gain", "overrides": ["dynamics_shift.parameter.shifted=0.9"]},
-    {"id": "E1-g07", "preset": "action_gain", "overrides": ["dynamics_shift.parameter.shifted=0.7"]},
-    {"id": "E1-g05", "preset": "action_gain", "overrides": ["dynamics_shift.parameter.shifted=0.5"]},
-    {"id": "E2-mid", "preset": "action_gain", "overrides": ["dynamics_shift.schedule.type=abrupt", "dynamics_shift.schedule.clock=episode_native_step", "dynamics_shift.schedule.reset_on_episode=true", "dynamics_shift.schedule.switch_step=100"]},
-    {"id": "E2-global", "preset": "action_gain", "overrides": ["dynamics_shift.schedule.type=abrupt", "dynamics_shift.schedule.switch_step=100"]},
-    {"id": "E3", "preset": "action_gain", "overrides": ["dynamics_shift.schedule.type=repeated", "dynamics_shift.schedule.interval=200"]},
-    {"id": "E4", "preset": "action_gain", "overrides": ["dynamics_shift.parameter.shifted=1.3", "dynamics_shift.schedule.type=sinusoidal", "dynamics_shift.schedule.interval=200"]},
-    {"id": "E5-d1", "preset": "action_delay", "overrides": ["dynamics_shift.parameter.shifted=1"]},
-    {"id": "E5-d2", "preset": "action_delay", "overrides": ["dynamics_shift.parameter.shifted=2"]},
-    {"id": "E6-m05", "preset": "object_mass", "overrides": ["dynamics_shift.parameter.shifted=0.5"]},
-    {"id": "E6-m15", "preset": "object_mass", "overrides": ["dynamics_shift.parameter.shifted=1.5"]},
-    {"id": "E7-f05", "preset": "contact_friction", "overrides": ["dynamics_shift.parameter.shifted=0.5"]},
-    {"id": "E7-f15", "preset": "contact_friction", "overrides": ["dynamics_shift.parameter.shifted=1.5"]}
+    {
+      "id": "E0",
+      "preset": "nominal",
+      "overrides": []
+    },
+    {
+      "id": "E1-g09",
+      "preset": "action_gain",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=0.9"
+      ]
+    },
+    {
+      "id": "E1-g07",
+      "preset": "action_gain",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=0.7"
+      ]
+    },
+    {
+      "id": "E1-g05",
+      "preset": "action_gain",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=0.5"
+      ]
+    },
+    {
+      "id": "E2-mid",
+      "preset": "action_gain",
+      "overrides": [
+        "dynamics_shift.schedule.type=abrupt",
+        "dynamics_shift.schedule.clock=episode_native_step",
+        "dynamics_shift.schedule.reset_on_episode=true",
+        "dynamics_shift.schedule.switch_step=100"
+      ]
+    },
+    {
+      "id": "E2-global",
+      "preset": "action_gain",
+      "overrides": [
+        "dynamics_shift.schedule.type=abrupt",
+        "dynamics_shift.schedule.switch_step=100"
+      ]
+    },
+    {
+      "id": "E3",
+      "preset": "action_gain",
+      "overrides": [
+        "dynamics_shift.schedule.type=repeated",
+        "dynamics_shift.schedule.interval=200"
+      ]
+    },
+    {
+      "id": "E4",
+      "preset": "action_gain",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=1.3",
+        "dynamics_shift.schedule.type=sinusoidal",
+        "dynamics_shift.schedule.interval=200"
+      ]
+    },
+    {
+      "id": "E5-d1",
+      "preset": "action_delay",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=1"
+      ]
+    },
+    {
+      "id": "E5-d2",
+      "preset": "action_delay",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=2"
+      ]
+    },
+    {
+      "id": "E6-m05",
+      "preset": "object_mass",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=0.5"
+      ]
+    },
+    {
+      "id": "E6-m15",
+      "preset": "object_mass",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=1.5"
+      ]
+    },
+    {
+      "id": "E7-f05",
+      "preset": "contact_friction",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=0.5"
+      ]
+    },
+    {
+      "id": "E7-f15",
+      "preset": "contact_friction",
+      "overrides": [
+        "dynamics_shift.parameter.shifted=1.5"
+      ]
+    }
   ]
 }

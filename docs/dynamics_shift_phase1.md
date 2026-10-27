@@ -44,12 +44,12 @@ bash scripts/evaluate_dynamics_shift.sh /absolute/path/pick-cube-1.pt
 ```
 
 This runs E0–E3 plus both E4 clock variants, each with 50 episodes and seeds 1–50.
-The model size must match the checkpoint (the script assumes the 1M checkpoint).
+The released single-task checkpoints require model_size=5, as documented in the repository README. Do not infer model size from the filename suffix.
 To run individual conditions from `tdmpc2/`:
 
 ```bash
-python evaluate.py task=pick-cube model_size=1 checkpoint=/absolute/path/pick-cube-1.pt eval_episodes=50 save_video=false shift_mode=abrupt shift_gain=0.7 shift_clock=episode shift_switch_step=100
-python evaluate.py task=pick-cube model_size=1 checkpoint=/absolute/path/pick-cube-1.pt eval_episodes=50 save_video=false shift_mode=repeated shift_gain=0.7 shift_period=200
+python evaluate.py task=pick-cube model_size=5 checkpoint=/absolute/path/pick-cube-1.pt eval_episodes=50 save_video=false shift_mode=abrupt shift_gain=0.7 shift_clock=episode shift_switch_step=100
+python evaluate.py task=pick-cube model_size=5 checkpoint=/absolute/path/pick-cube-1.pt eval_episodes=50 save_video=false shift_mode=repeated shift_gain=0.7 shift_period=200
 ```
 
 Existing nominal CLI syntax remains accepted; all shift defaults are nominal.

@@ -7,7 +7,7 @@ if [[ "$checkpoint" != /* || ! -f "$checkpoint" ]]; then
   exit 1
 fi
 cd "$(dirname "$0")/../tdmpc2"
-base=(task=pick-cube model_size=1 "checkpoint=$checkpoint" eval_episodes=50 seed=1 save_video=false)
+base=(task=pick-cube model_size=5 "checkpoint=$checkpoint" eval_episodes=50 seed=1 save_video=false)
 python evaluate.py "${base[@]}" shift_mode=nominal exp_name=E0
 python evaluate.py "${base[@]}" shift_mode=fixed shift_gain=0.9 exp_name=E1
 python evaluate.py "${base[@]}" shift_mode=fixed shift_gain=0.7 exp_name=E2

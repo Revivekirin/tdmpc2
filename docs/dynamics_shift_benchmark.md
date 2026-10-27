@@ -168,19 +168,20 @@ python scripts/evaluate_shift_suite.py --checkpoint /path/to/pick-cube-1.pt --dr
 `benchmarks/dynamics_shift_suite.json` declares E0–E7 intensity, schedule and shared
 seed settings. There are 14 runs including variants: nominal, three fixed gains,
 both abrupt clocks, repeated, sinusoidal, two delays, two masses and two frictions.
-All use the same checkpoint and episode seeds 1–50. Model size 1 must match the
-provided checkpoint. Checkpoint files are read only and SHA-256 verified at end.
+All use the same checkpoint and episode seeds 1–50. The released single-task
+checkpoints require model_size=5 (see README.md); the filename suffix is not a model
+size declaration. For a custom checkpoint, use --model-size with its actual size. Checkpoint files are read only and SHA-256 verified at end.
 
 From `tdmpc2/`, an individual mid-episode intervention after 50 decisions:
 
 ```bash
-python evaluate_shift.py configs/dynamics_shift@dynamics_shift=action_gain task=pick-cube model_size=1 checkpoint=/absolute/path/pick-cube-1.pt eval_episodes=50 save_video=false dynamics_shift.schedule.type=abrupt dynamics_shift.schedule.clock=episode_decision_step dynamics_shift.schedule.reset_on_episode=true dynamics_shift.schedule.switch_step=50
+python evaluate_shift.py configs/dynamics_shift@dynamics_shift=action_gain task=pick-cube model_size=5 checkpoint=/absolute/path/pick-cube-1.pt eval_episodes=50 save_video=false dynamics_shift.schedule.type=abrupt dynamics_shift.schedule.clock=episode_decision_step dynamics_shift.schedule.reset_on_episode=true dynamics_shift.schedule.switch_step=50
 ```
 
 Friction drift across episodes (sample-and-hold, no in-episode changes):
 
 ```bash
-python evaluate_shift.py configs/dynamics_shift@dynamics_shift=contact_friction task=pick-cube model_size=1 checkpoint=/absolute/path/pick-cube-1.pt eval_episodes=50 save_video=false dynamics_shift.schedule.type=linear_drift dynamics_shift.schedule.clock=episode_index dynamics_shift.schedule.switch_step=0 dynamics_shift.schedule.duration=49
+python evaluate_shift.py configs/dynamics_shift@dynamics_shift=contact_friction task=pick-cube model_size=5 checkpoint=/absolute/path/pick-cube-1.pt eval_episodes=50 save_video=false dynamics_shift.schedule.type=linear_drift dynamics_shift.schedule.clock=episode_index dynamics_shift.schedule.switch_step=0 dynamics_shift.schedule.duration=49
 ```
 
 For randomized delay, select `action_delay` and override
@@ -296,3 +297,13 @@ must pass on the target host before treating physics results as validated.
   `tests/benchmark_imports.py`: dependency-light unit/API fixture/config tests.
 - `tests/test_maniskill_integration.py`: optional real action/physics tests; earlier
   Phase 1 tests remain in `test_dynamics_shift.py` and `test_shift_logging.py`.
+
+## Checkpoint shape mismatch troubleshooting
+
+A released single-task checkpoint loaded with `model_size=1` can fail with
+`Tensor weight has shape [5, 512] ... batch-size [2]`. The 1M preset creates two Q
+networks, whereas the released 5M single-task architecture uses five. Use
+`model_size=5`; do not slice weights, change `num_q` alone, or disable strict loading.
+The suite default and legacy script have been corrected. The suite can also take
+`--model-size 5` explicitly. A preceding GLFW/DISPLAY warning is not the stopping
+error in the supplied trace: execution continued to checkpoint loading.
