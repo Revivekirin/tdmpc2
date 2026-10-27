@@ -1,0 +1,15 @@
+defaults:
+  - nominal
+  - _self_
+enabled: true
+application: reset
+parameter:
+  type: contact_friction
+  actor: obj
+  surfaces: ["@plane"]
+  nominal: 1.0
+  shifted: 0.5
+schedule:
+  type: fixed
+  values: null
+  segments: []

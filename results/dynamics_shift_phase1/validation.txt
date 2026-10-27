@@ -1,0 +1,13 @@
+test_abrupt_reset_clocks (test_dynamics_shift.ShiftTests.test_abrupt_reset_clocks) ... ok
+test_fixed_clip_hidden (test_dynamics_shift.ShiftTests.test_fixed_clip_hidden) ... ok
+test_invalid (test_dynamics_shift.ShiftTests.test_invalid) ... ok
+test_nominal_equivalence (test_dynamics_shift.ShiftTests.test_nominal_equivalence) ... ok
+test_other_schedules (test_dynamics_shift.ShiftTests.test_other_schedules) ... ok
+test_repeat_uses_actual_wrapper (test_dynamics_shift.ShiftTests.test_repeat_uses_actual_wrapper) ... ok
+test_nominal_and_actual_shift (test_maniskill_integration.SimulatorTests.test_nominal_and_actual_shift) ... skipped 'requires ManiSkill2 0.4.1 and a SAPIEN-capable host'
+test_artifacts_and_unique_runs (test_shift_logging.LogTests.test_artifacts_and_unique_runs) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.256s
+
+OK (skipped=1)

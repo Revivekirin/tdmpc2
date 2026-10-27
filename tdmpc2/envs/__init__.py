@@ -64,14 +64,17 @@ def make_env(cfg):
 		env = make_multitask_env(cfg)
 
 	else:
-		env = None
-		for fn in [make_dm_control_env, make_maniskill_env, make_metaworld_env, make_myosuite_env, make_mujoco_env]:
-			try:
-				env = fn(cfg)
-			except ValueError:
-				pass
-		if env is None:
-			raise ValueError(f'Failed to make environment "{cfg.task}": please verify that dependencies are installed and that the task exists.')
+		if cfg.get('dynamics_shift', {}).get('enabled', False):
+			env = make_maniskill_env(cfg)
+		else:
+			env = None
+			for fn in [make_dm_control_env, make_maniskill_env, make_metaworld_env, make_myosuite_env, make_mujoco_env]:
+				try:
+					env = fn(cfg)
+				except ValueError:
+					pass
+			if env is None:
+				raise ValueError(f'Failed to make environment "{cfg.task}": please verify that dependencies are installed and that the task exists.')
 		env = TensorWrapper(env)
 	try: # Dict
 		cfg.obs_shape = {k: v.shape for k, v in env.observation_space.spaces.items()}

@@ -1,0 +1,14 @@
+defaults:
+  - nominal
+  - _self_
+enabled: true
+application: step
+parameter:
+  type: action_coupling
+  target: arm
+  nominal: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+  shifted: [[1, 0.2, 0], [0, 1, 0], [0, 0, 1]]
+schedule:
+  type: fixed
+  values: null
+  segments: []

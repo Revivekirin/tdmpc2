@@ -1,0 +1,9 @@
+{
+  "unit_tests_passed": 7,
+  "simulator_tests_skipped": 1,
+  "simulator_verified": false,
+  "frozen_checkpoint_evaluated": false,
+  "evaluation_artifacts": [],
+  "missing_checkpoint": "pick-cube-1.pt",
+  "baseline_commit": "4b8f65a5173cb82811ff98b9038efd5c1d991c66"
+}

@@ -1,0 +1,112 @@
+{
+  "status": "implementation_and_local_validation_complete; real integration/evaluation pending",
+  "changed_and_added_files": [
+    "benchmarks/dynamics_shift_suite.json",
+    "docs/dynamics_shift_benchmark.md",
+    "docs/dynamics_shift_phase1.md",
+    "results/dynamics_shift_benchmark/implementation_report.json",
+    "results/dynamics_shift_benchmark/suite_commands.txt",
+    "results/dynamics_shift_benchmark/validation.json",
+    "results/dynamics_shift_benchmark/validation.txt",
+    "results/dynamics_shift_phase1/validation.json",
+    "results/dynamics_shift_phase1/validation.txt",
+    "scripts/evaluate_dynamics_shift.sh",
+    "scripts/evaluate_shift_suite.py",
+    "scripts/validate_shift_benchmark.py",
+    "tdmpc2/common/benchmark_logging.py",
+    "tdmpc2/common/shift_evaluation.py",
+    "tdmpc2/common/shift_metrics.py",
+    "tdmpc2/common/shift_protocol.py",
+    "tdmpc2/config.yaml",
+    "tdmpc2/configs/dynamics_shift/action_bias.yaml",
+    "tdmpc2/configs/dynamics_shift/action_coupling.yaml",
+    "tdmpc2/configs/dynamics_shift/action_delay.yaml",
+    "tdmpc2/configs/dynamics_shift/action_gain.yaml",
+    "tdmpc2/configs/dynamics_shift/action_gain_sequence.yaml",
+    "tdmpc2/configs/dynamics_shift/contact_friction.yaml",
+    "tdmpc2/configs/dynamics_shift/nominal.yaml",
+    "tdmpc2/configs/dynamics_shift/object_mass.yaml",
+    "tdmpc2/envs/__init__.py",
+    "tdmpc2/envs/maniskill.py",
+    "tdmpc2/envs/wrappers/dynamics_shift/__init__.py",
+    "tdmpc2/envs/wrappers/dynamics_shift/action_shift.py",
+    "tdmpc2/envs/wrappers/dynamics_shift/base.py",
+    "tdmpc2/envs/wrappers/dynamics_shift/factory.py",
+    "tdmpc2/envs/wrappers/dynamics_shift/legacy.py",
+    "tdmpc2/envs/wrappers/dynamics_shift/logging.py",
+    "tdmpc2/envs/wrappers/dynamics_shift/physics_shift.py",
+    "tdmpc2/envs/wrappers/dynamics_shift/schedule.py",
+    "tdmpc2/envs/wrappers/tensor.py",
+    "tdmpc2/evaluate.py",
+    "tdmpc2/evaluate_shift.py",
+    "tests/benchmark_imports.py",
+    "tests/test_dynamics_shift.py",
+    "tests/test_maniskill_integration.py",
+    "tests/test_shift_benchmark.py",
+    "tests/test_shift_config.py",
+    "tests/test_shift_logging.py",
+    "tests/test_shift_physics.py",
+    "tests/test_shift_state_and_logging.py"
+  ],
+  "supported_parameters": [
+    "action_gain",
+    "action_bias",
+    "action_coupling",
+    "action_delay",
+    "object_mass",
+    "contact_friction"
+  ],
+  "schedules": [
+    "nominal",
+    "fixed",
+    "abrupt",
+    "repeated",
+    "sinusoidal",
+    "linear_drift",
+    "random_piecewise",
+    "sequence"
+  ],
+  "unsupported": [
+    "action_delay with sinusoidal or linear_drift",
+    "mid-episode physics changes",
+    "physics shifts outside pick-cube",
+    "non-frozen protocol execution"
+  ],
+  "unit_tests_passed": 24,
+  "tests_skipped": [
+    {
+      "test": "test_maniskill_integration.BenchmarkSimulatorTests.test_all_action_shifts_from_same_state",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_maniskill_integration.BenchmarkSimulatorTests.test_physics_readback_restore_and_contact_response",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_maniskill_integration.SimulatorTests.test_nominal_and_actual_shift",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_shift_config.ConfigTests.test_every_preset_composes_and_constructs",
+      "reason": "requires hydra-core to validate CLI composition"
+    }
+  ],
+  "additional_checks": {
+    "compileall": "passed",
+    "git_diff_check": "passed",
+    "yaml_syntax_ruby": "9 YAML files passed",
+    "suite_dry_run": "14 condition commands generated"
+  },
+  "frozen_evaluation": null,
+  "evaluation_csv_files": [],
+  "missing_checkpoint": "pick-cube-1.pt (no .pt files found in workspace, including ignored files)",
+  "artifacts": [
+    "results/dynamics_shift_benchmark/validation.txt",
+    "results/dynamics_shift_benchmark/validation.json",
+    "results/dynamics_shift_benchmark/suite_commands.txt",
+    "results/dynamics_shift_benchmark/implementation_report.json"
+  ],
+  "adaptation_interface": "common.shift_protocol.Transition / FrozenProtocol.observe; other protocols are declarations only",
+  "resume_interface": "ShiftWrapper.state_dict/load_state_dict; dynamics_shift.logging.capture_environment/restore_environment",
+  "documentation": "docs/dynamics_shift_benchmark.md"
+}

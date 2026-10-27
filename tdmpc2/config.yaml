@@ -1,4 +1,6 @@
 defaults:
+    - configs/dynamics_shift@dynamics_shift: nominal
+    - _self_
     - override hydra/launcher: submitit_local
 
 # environment
@@ -10,6 +12,25 @@ episodic: false
 checkpoint: ???
 eval_episodes: 10
 eval_freq: 50000
+
+# Dynamics shift (native steps; two native steps per TD-MPC2 decision)
+shift_mode: nominal
+shift_gain: 0.7
+shift_switch_step: 100
+shift_period: 200
+shift_amplitude: 0.3
+shift_clock: global
+shift_preserve_gripper: true
+# Optional explicit episode seeds; default seed + episode index for ManiSkill.
+eval_seeds: null
+
+# Benchmark protocol; only frozen is executable in this phase.
+adaptation_mode: frozen
+benchmark_split: eval
+benchmark_id: dynamics_shift
+benchmark_save_segment_state: false
+benchmark_save_trajectory: true
+benchmark_probe_values: []
 
 # training
 steps: 10_000_000

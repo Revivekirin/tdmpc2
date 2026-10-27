@@ -1,0 +1,14 @@
+defaults:
+  - nominal
+  - _self_
+enabled: true
+application: step
+parameter:
+  type: action_gain
+  target: arm
+  nominal: 1.0
+  shifted: 0.7
+schedule:
+  type: fixed
+  values: null
+  segments: []

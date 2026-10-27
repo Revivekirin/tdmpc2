@@ -2,6 +2,7 @@ import gymnasium as gym
 import gym as legacy_gym
 import numpy as np
 from envs.wrappers.timeout import Timeout
+from envs.wrappers.dynamics_shift import DynamicsShiftWrapper, ShiftWrapper, make_shift
 
 import mani_skill2.envs
 
@@ -42,17 +43,30 @@ class ManiSkillWrapper(gym.Env):
 			dtype=self.env.action_space.dtype,
 		)
 
-	def reset(self):
-		return self.env.reset()
+	def reset(self, **kwargs):
+		return self.env.reset(**kwargs)
 	
 	def step(self, action):
 		reward = 0
+		native_steps = []
+		benchmark = isinstance(self.env, ShiftWrapper)
+		if benchmark:
+			self.env.begin_decision()
 		for _ in range(2):
 			obs, r, done, info = self.env.step(action)
+			if 'shift_record' in info:
+				native_steps.append(info['shift_record'])
+			if 'shift_gain' in info:
+				native_steps.append({**{k: v for k, v in info.items() if k.startswith('shift_')},
+					'reward': float(r), 'done': bool(done)})
 			reward += r
 			info['terminated'] = done
 			if done:
 				break
+		if benchmark:
+			self.env.end_decision()
+		if native_steps:
+			info['shift_native_steps'] = native_steps
 		return obs, reward, done, info
 
 	@property
@@ -61,6 +75,9 @@ class ManiSkillWrapper(gym.Env):
 
 	def render(self, *args, **kwargs):
 		return self.env.render(mode='cameras')
+
+	def close(self):
+		return self.env.close()
 
 
 def make_env(cfg):
@@ -77,6 +94,18 @@ def make_env(cfg):
 		control_mode=task_cfg['control_mode'],
 		render_camera_cfgs=dict(width=384, height=384),
 	)
+	shift_config = cfg.get('dynamics_shift', {})
+	if shift_config.get('enabled', False):
+		if cfg.get('shift_mode', 'nominal') != 'nominal':
+			raise ValueError('Do not mix legacy shift_mode and dynamics_shift settings.')
+		env = make_shift(env, shift_config, task=cfg.task)
+	else:
+		env = DynamicsShiftWrapper(
+			env, mode=cfg.get('shift_mode', 'nominal'), gain=cfg.get('shift_gain', 0.7),
+			switch_step=cfg.get('shift_switch_step', 100), period=cfg.get('shift_period', 200),
+			amplitude=cfg.get('shift_amplitude', 0.3), clock=cfg.get('shift_clock', 'global'),
+			preserve_gripper=cfg.get('shift_preserve_gripper', True),
+		)
 	env = ManiSkillWrapper(env, cfg)
 	env = Timeout(env, max_episode_steps=100)
 	return env

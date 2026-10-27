@@ -1,0 +1,38 @@
+{
+  "command": "/Users/jihyekim/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 scripts/validate_shift_benchmark.py",
+  "python": "3.12.14",
+  "packages": {
+    "numpy": "2.3.5",
+    "torch": null,
+    "gym": null,
+    "gymnasium": null,
+    "hydra-core": null,
+    "mani-skill2": null,
+    "sapien": null
+  },
+  "code_revision": "4b8f65a5173cb82811ff98b9038efd5c1d991c66",
+  "tests_run": 28,
+  "tests_passed": 24,
+  "skipped": [
+    {
+      "test": "test_maniskill_integration.BenchmarkSimulatorTests.test_all_action_shifts_from_same_state",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_maniskill_integration.BenchmarkSimulatorTests.test_physics_readback_restore_and_contact_response",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_maniskill_integration.SimulatorTests.test_nominal_and_actual_shift",
+      "reason": "requires ManiSkill2 0.4.1 and a SAPIEN-capable host"
+    },
+    {
+      "test": "test_shift_config.ConfigTests.test_every_preset_composes_and_constructs",
+      "reason": "requires hydra-core to validate CLI composition"
+    }
+  ],
+  "failures": [],
+  "frozen_checkpoint_evaluated": false,
+  "evaluation_artifacts": [],
+  "note": "Toy-environment/API-fixture tests are not simulator performance results. This command does not evaluate a model."
+}

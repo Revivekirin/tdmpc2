@@ -1,0 +1,14 @@
+defaults:
+  - nominal
+  - _self_
+enabled: true
+application: step
+parameter:
+  type: action_bias
+  target: arm
+  nominal: 0.0
+  shifted: 0.1
+schedule:
+  type: fixed
+  values: null
+  segments: []

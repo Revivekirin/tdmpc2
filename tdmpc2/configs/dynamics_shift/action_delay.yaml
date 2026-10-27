@@ -1,0 +1,16 @@
+defaults:
+  - nominal
+  - _self_
+enabled: true
+application: step
+parameter:
+  type: action_delay
+  target: arm
+  nominal: 0
+  shifted: 1
+  reset_queue_on_episode: true
+  initial_action: [0, 0, 0, 0]
+schedule:
+  type: fixed
+  values: null
+  segments: []

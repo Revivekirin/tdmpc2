@@ -1,0 +1,14 @@
+defaults:
+  - nominal
+  - _self_
+enabled: true
+application: reset
+parameter:
+  type: object_mass
+  actor: obj
+  nominal: 1.0
+  shifted: 1.5
+schedule:
+  type: fixed
+  values: null
+  segments: []

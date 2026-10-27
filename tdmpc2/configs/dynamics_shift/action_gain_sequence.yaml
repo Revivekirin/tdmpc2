@@ -1,0 +1,11 @@
+defaults:
+  - action_gain
+  - _self_
+schedule:
+  type: sequence
+  segments:
+    - {duration: 100, value: 1.0, label: A}
+    - {duration: 100, value: 0.7, label: B}
+    - {duration: 100, value: 1.0, label: A}
+# Reserve C=0.5 with benchmark_probe_values=[0.5] in the main config/CLI.
+# Probe separately with benchmark_split=probe and a fixed C shift.

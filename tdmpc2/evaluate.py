@@ -11,6 +11,7 @@ from termcolor import colored
 
 from common.parser import parse_cfg
 from common.seed import set_seed
+from common.shift_evaluation import EvaluationLog, shift_env
 from envs import make_env
 from tdmpc2 import TDMPC2
 
@@ -42,6 +43,8 @@ def evaluate(cfg: dict):
 	assert torch.cuda.is_available()
 	assert cfg.eval_episodes > 0, 'Must evaluate at least 1 episode.'
 	cfg = parse_cfg(cfg)
+	if cfg.get('dynamics_shift', {}).get('enabled', False):
+		raise ValueError('Use evaluate_shift.py for structured dynamics_shift benchmark configuration.')
 	set_seed(cfg.seed)
 	print(colored(f'Task: {cfg.task}', 'blue', attrs=['bold']))
 	print(colored(f'Model size: {cfg.get("model_size", "default")}', 'blue', attrs=['bold']))
@@ -58,13 +61,21 @@ def evaluate(cfg: dict):
 	assert os.path.exists(cfg.checkpoint), f'Checkpoint {cfg.checkpoint} not found! Must be a valid filepath.'
 	agent.load(cfg.checkpoint)
 	
+	shift = shift_env(env)
+	if cfg.shift_mode != 'nominal' and shift is None:
+		raise ValueError('Dynamics shifts require a single-task ManiSkill environment.')
+	log = EvaluationLog(cfg)
+	if cfg.eval_seeds is not None and len(cfg.eval_seeds) != cfg.eval_episodes:
+		raise ValueError('eval_seeds must contain one seed per evaluation episode.')
+	print(f'Evaluation artifacts: {log.path.resolve()}')
+
 	# Evaluate
 	if cfg.multitask:
 		print(colored(f'Evaluating agent on {len(cfg.tasks)} tasks:', 'yellow', attrs=['bold']))
 	else:
 		print(colored(f'Evaluating agent on {cfg.task}:', 'yellow', attrs=['bold']))
 	if cfg.save_video:
-		video_dir = os.path.join(cfg.work_dir, 'videos')
+		video_dir = os.path.join(log.path, 'videos')
 		os.makedirs(video_dir, exist_ok=True)
 	scores = []
 	tasks = cfg.tasks if cfg.multitask else [cfg.task]
@@ -73,21 +84,35 @@ def evaluate(cfg: dict):
 			task_idx = None
 		ep_rewards, ep_successes = [], []
 		for i in range(cfg.eval_episodes):
-			obs, done, ep_reward, t = env.reset(task_idx=task_idx), False, 0, 0
+			episode_seed = int(cfg.eval_seeds[i] if cfg.eval_seeds is not None else cfg.seed + i)
+			if shift is not None:
+				set_seed(episode_seed)
+			start_native = shift.global_step if shift is not None else None
+			obs, done, ep_reward, t = env.reset(task_idx=task_idx, **({"seed": episode_seed} if shift is not None else {})), False, 0, 0
 			if cfg.save_video:
 				frames = [env.render()]
 			while not done:
 				action = agent.act(obs, t0=t==0, task=task_idx)
 				obs, reward, done, info = env.step(action)
-				ep_reward += reward
+				log.step(task, i, t, action, reward, done, info)
+				ep_reward += float(reward)
 				t += 1
 				if cfg.save_video:
 					frames.append(env.render())
+			log.episode(dict(task=task, checkpoint=str(log.checkpoint), seed=episode_seed if shift is not None else cfg.seed,
+				episode_index=i, shift_mode=cfg.shift_mode, shift_gain=cfg.shift_gain,
+				shift_switch_step=cfg.shift_switch_step, shift_period=cfg.shift_period,
+				shift_amplitude=cfg.shift_amplitude, shift_clock=cfg.shift_clock,
+				episode_return=ep_reward, success=float(info['success']), episode_length=t,
+				native_global_start=start_native, native_global_end=shift.global_step if shift is not None else None,
+				native_episode_length=shift.episode_step if shift is not None else None,
+				output_directory=str(log.path.resolve())))
 			ep_rewards.append(ep_reward)
 			ep_successes.append(info['success'])
 			if cfg.save_video:
 				imageio.mimsave(
 					os.path.join(video_dir, f'{task}-{i}.mp4'), frames, fps=15)
+		print(f'  Std: return={np.std(ep_rewards):.3f}, success={np.std(ep_successes):.3f}')
 		ep_rewards = np.mean(ep_rewards)
 		ep_successes = np.mean(ep_successes)
 		if cfg.multitask:
@@ -97,6 +122,9 @@ def evaluate(cfg: dict):
 			f'\tS: {ep_successes:.02f}', 'yellow'))
 	if cfg.multitask:
 		print(colored(f'Normalized score: {np.mean(scores):.02f}', 'yellow', attrs=['bold']))
+
+	log.finish()
+	env.close()
 
 
 if __name__ == '__main__':

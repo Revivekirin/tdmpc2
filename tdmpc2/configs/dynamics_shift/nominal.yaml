@@ -1,0 +1,31 @@
+# Benchmark nominal uses an identity action shift to retain diagnostic clocks.
+# Disabled by default so legacy evaluate/train commands keep their behavior.
+enabled: false
+application: step
+parameter:
+  type: action_gain
+  target: arm
+  nominal: 1.0
+  shifted: 0.7
+schedule:
+  type: nominal
+  clock: global_native_step
+  reset_on_episode: false
+  switch_step: 100
+  interval: 200
+  duration: 200
+  amplitude: 1.0
+  seed: 42
+  values: [1.0, 0.7, 0.5]
+  segments:
+    - {duration: 100, value: 1.0, label: A}
+    - {duration: 100, value: 0.7, label: B}
+    - {duration: 100, value: 1.0, label: A}
+    - {duration: 100, value: 0.5, label: C}
+observability:
+  expose_shift_parameter_to_agent: false
+  expose_executed_action_to_agent: false
+logging:
+  save_step_trace: true
+  save_shift_events: true
+  save_episode_summary: true

@@ -1,0 +1,33 @@
+test_abrupt_reset_clocks (test_dynamics_shift.ShiftTests.test_abrupt_reset_clocks) ... ok
+test_fixed_clip_hidden (test_dynamics_shift.ShiftTests.test_fixed_clip_hidden) ... ok
+test_invalid (test_dynamics_shift.ShiftTests.test_invalid) ... ok
+test_nominal_equivalence (test_dynamics_shift.ShiftTests.test_nominal_equivalence) ... ok
+test_other_schedules (test_dynamics_shift.ShiftTests.test_other_schedules) ... ok
+test_repeat_uses_actual_wrapper (test_dynamics_shift.ShiftTests.test_repeat_uses_actual_wrapper) ... ok
+test_all_action_shifts_from_same_state (test_maniskill_integration.BenchmarkSimulatorTests.test_all_action_shifts_from_same_state) ... skipped 'requires ManiSkill2 0.4.1 and a SAPIEN-capable host'
+test_physics_readback_restore_and_contact_response (test_maniskill_integration.BenchmarkSimulatorTests.test_physics_readback_restore_and_contact_response) ... skipped 'requires ManiSkill2 0.4.1 and a SAPIEN-capable host'
+test_nominal_and_actual_shift (test_maniskill_integration.SimulatorTests.test_nominal_and_actual_shift) ... skipped 'requires ManiSkill2 0.4.1 and a SAPIEN-capable host'
+test_decision_repeat_and_clock (test_shift_benchmark.BenchmarkTests.test_decision_repeat_and_clock) ... ok
+test_delay_queue_reset_and_preserve (test_shift_benchmark.BenchmarkTests.test_delay_queue_reset_and_preserve) ... ok
+test_discrete_and_continuous_schedules (test_shift_benchmark.BenchmarkTests.test_discrete_and_continuous_schedules) ... ok
+test_episode_clock_and_events (test_shift_benchmark.BenchmarkTests.test_episode_clock_and_events) ... ok
+test_gain_bias_coupling_clipping_gripper (test_shift_benchmark.BenchmarkTests.test_gain_bias_coupling_clipping_gripper) ... ok
+test_nominal_all_action_types (test_shift_benchmark.BenchmarkTests.test_nominal_all_action_types) ... ok
+test_random_resume_including_delay_queue (test_shift_benchmark.BenchmarkTests.test_random_resume_including_delay_queue) ... ok
+test_sequence_and_probe_holdout (test_shift_benchmark.BenchmarkTests.test_sequence_and_probe_holdout) ... ok
+test_supported_parameter_schedule_matrix (test_shift_benchmark.BenchmarkTests.test_supported_parameter_schedule_matrix) ... ok
+test_validation_and_seed_protocol (test_shift_benchmark.BenchmarkTests.test_validation_and_seed_protocol) ... ok
+test_every_preset_composes_and_constructs (test_shift_config.ConfigTests.test_every_preset_composes_and_constructs) ... skipped 'requires hydra-core to validate CLI composition'
+test_artifacts_and_unique_runs (test_shift_logging.LogTests.test_artifacts_and_unique_runs) ... ok
+test_friction_readback_isolated_restore (test_shift_physics.PhysicsTests.test_friction_readback_isolated_restore) ... ok
+test_mass_readback_reset_reconfigure (test_shift_physics.PhysicsTests.test_mass_readback_reset_reconfigure) ... ok
+test_physics_sample_hold_and_resume (test_shift_physics.PhysicsTests.test_physics_sample_hold_and_resume) ... ok
+test_physics_validation (test_shift_physics.PhysicsTests.test_physics_validation) ... ok
+test_plane_surface_selector (test_shift_physics.PhysicsTests.test_plane_surface_selector) ... ok
+test_benchmark_artifacts_flags_and_failure (test_shift_state_and_logging.StateLogTests.test_benchmark_artifacts_flags_and_failure) ... ok
+test_full_environment_resume (test_shift_state_and_logging.StateLogTests.test_full_environment_resume) ... ok
+
+----------------------------------------------------------------------
+Ran 28 tests in 0.421s
+
+OK (skipped=4)
