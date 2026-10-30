@@ -1,5 +1,7 @@
 # Dynamics Shift Benchmark v2
 
+Conda 설치부터 검증·실행까지 한 번에 진행하려면 `SETUP_SHIFT_BENCHMARK.md`를 먼저 읽는다.
+
 Stage 1 implements frozen evaluation only. Simulator validation and checkpoint
 rollouts remain **UNVERIFIED** on the development machine; see
 `audits/benchmark-v2-validation/validation.md`. Unit fixtures are not benchmark
@@ -76,19 +78,21 @@ are otherwise unchanged.
 
 Use a compatible Linux/CUDA environment with the repository's ManiSkill2/SAPIEN
 stack and an existing pretrained checkpoint. Supply its actual absolute path.
-The model size must match the checkpoint (released single-task models use 5).
+The model size and `episodic` flag must match the checkpoint. The tested
+`pickcube-nominal-seed0-500k/models/final.pt` requires `model_size=5` and
+`episodic=true` because it contains a termination head.
 
 ```bash
 cd tdmpc2
-python evaluate_shift.py task=pick-cube model_size=5 checkpoint=/absolute/model.pt \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=true checkpoint=/absolute/model.pt \
   dynamics_shift=action_gain schedule=fixed adaptation=frozen evaluation=standard \
   dynamics_shift.parameter.shifted=0.7 save_video=false
 
-python evaluate_shift.py task=pick-cube model_size=5 checkpoint=/absolute/model.pt \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=true checkpoint=/absolute/model.pt \
   dynamics_shift=action_gain schedule=abrupt adaptation=frozen evaluation=paired \
   schedule.switch_step=10 save_video=false
 
-python evaluate_shift.py task=pick-cube model_size=5 checkpoint=/absolute/model.pt \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=true checkpoint=/absolute/model.pt \
   dynamics_shift=action_gain schedule=sequence adaptation=frozen evaluation=paired \
   save_video=false
 ```
