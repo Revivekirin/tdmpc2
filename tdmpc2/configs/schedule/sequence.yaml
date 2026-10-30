@@ -1,0 +1,14 @@
+type: sequence
+clock: global_native_step
+reset_on_episode: false
+switch_step: 10
+interval: 200
+duration: 200
+amplitude: 1.0
+seed: 42
+values: null
+segments:
+  - {duration: 20, value: 1.0, label: A}
+  - {duration: 40, value: 0.7, label: B}
+  - {duration: 20, value: 1.0, label: A}
+  - {duration: 40, value: 0.5, label: C}

@@ -2,6 +2,134 @@
 
 작성일: 2026-10-27. 검토 기준 commit: `67be304a26508976a146af5556254a5869ba7574`.
 
+## 서버 결과 수신 후 갱신 — 2026-10-27
+
+**이 절이 아래 최초 로컬 감사의 자료 부재에 따른 판정을 대체한다.** 아래 1~10절은
+서버 자료 수신 전의 분석 기록으로 보존한다. 기존 benchmark와 입력 JSON은 수정하지 않았다.
+이번 검토는 사용자가 전달한 서버 감사 JSON을 분석한 것이며, 로컬에서 simulator를 재실행하거나
+원본 trajectory를 다시 감사한 것은 아니다.
+
+### 실제 검증 판정
+
+- **PASS — identity 21/21:** seeds 17/18/19 × disabled 반복 재현성, factory disabled,
+  enabled nominal, gain 1, delay 0, mass 1, friction 1. 각각 100 native steps.
+  reset 비교도 모두 일치하며 observation/reward/done/success/public simulator state의
+  최초 divergence는 모두 null. 허용 오차 atol=1e-6, rtol=0; 불리언은 정확히 비교.
+  해당 seed/action sequence 범위의 증거이며 모든 정책 trajectory를 보증하지 않는다.
+- **PASS — 물리 보존·복원 6/6:** 각 seed에서 mass/friction ×0.5 변경 및 복원.
+  mass는 0.0640000030 → 0.0320000015 kg, principal inertia도 절반.
+  COM/pose/velocity/angular velocity/reference slots 및 mass의 shape 비교 통과.
+  shallow stale reference 없음, 복원 속성 및 reset/복원 rollout identity 통과.
+  모든 nested reference·solver cache의 보존까지 인증한 것은 아니다.
+- **PASS — controlled contact response 2/2:** seed 17의 mass 및 friction probe에서
+  nominal 반복 오차 0, nonzero object contact 관측, ×0.5/×1.5 trajectory 차이 확인.
+  이는 물리 변경이 반응에 영향을 준다는 증거이다. 마찰 계수의 정량적 동정,
+  combine rule 검증, 실제 policy trajectory의 물리 타당성 전체를 입증하지 않는다.
+- **PASS — 15 runs의 completion/trace contract/action exposure 검사:** E0 2개와
+  13개 shift 조건. 기록된 checkpoint 종료 hash 확인도 모두 PASS.
+  action formula는 E4를 제외하고 PASS. E6/E7 cached readback 검사 모두 PASS.
+- **UNVERIFIED — E4 action formula:** 원본 metadata에 clipping bounds가 없어
+  saturated action의 차이를 도구가 인증하지 못함. 이는 구현 오류 판정이 아니다.
+  이번 simulator의 bounds는 [-1,1]^4지만 과거 run의 측정 bounds로 소급 취급하지 않는다.
+- **UNVERIFIED — paired initial observation:** 호환 E0가 2개이므로 도구가 reference를
+  선택하지 않아 비교를 수행하지 않았다. 불일치를 발견한 것이 아니다.
+  full simulator/controller/RNG pairing은 원본 로그에 기록이 없어 별도로 미검증.
+- **UNVERIFIED — 과거 run live physics readback 및 메모리 내 model weight 불변:**
+  cached readback/파일 hash와 해당 증거는 서로 다르다.
+
+두 JSON에서 FAIL 항목은 발견되지 않았다. top-level UNVERIFIED는 부분 검사 PASS와
+양립하며, 이를 전체 검증 실패 또는 전체 인증으로 해석해서는 안 된다.
+
+### 설치본으로 확인한 API 및 시간 단위
+
+ManiSkill2 0.4.1, SAPIEN 2.2.1, gym 0.21.0, torch 2.7.1.
+실제 보고된 sim_freq=500 Hz, control_freq=20 Hz, sim_steps_per_control=25.
+따라서 native step=50 ms, physics step=2 ms, 정상적인 2회 repeat decision=100 ms.
+Delay 1/2는 각각 50/100 ms이며 success로 repeat가 중단되면 decision 길이가 짧아진다.
+
+설치본 method source: agent.set_action → CombinedController의 arm/gripper 분할 →
+PDEEPosController.set_action → action 전처리 → target pose 및 IK → drive targets.
+그 뒤 매 native step에서 25회 agent.before_simulation_step → scene.step.
+arm config는 normalize_action=True, lower/upper=-0.1/0.1, frame='ee',
+use_delta=True, use_target=False, interpolate=False이다. 즉 정규화된 arm 입력은
+현재 end-effector 좌표계의 위치 delta로 사용되며, 이전 target의 누적 명령이 아니다.
+IK 실패 시 현재 시작 qpos로 fallback한다. gripper는 absolute joint position 명령이다.
+get_done은 bool(info['success'])를 반환한다.
+
+actor get_mass/get_inertia/get_builder는 노출되지만 set_mass/set_inertia/
+set_mass_and_inertia는 모두 미노출로 기록됐다. 현재 actor 재생성 경로가 시험된 것이며,
+직접 runtime mass setter 지원이 검증된 것은 아니다. 물리 wrapper는 계속 reset-time 적용이다.
+JSON에 포함된 method source/config는 읽었지만 복사된 설치 소스 전체와 SAPIEN C++는
+이번 첨부에 포함되지 않았다. simulator 감사 JSON에는 repo source hash 증명이 없어
+과거 benchmark와 simulator 검사 시점의 wrapper byte-for-byte 일치는 별도 미검증이다.
+
+### 조건별 실제 결과
+
+각 run은 50 episodes. 아래 통계는 전달된 log_audit.json의 episode 항목에서 재계산했다.
+노출 비율은 parameter가 nominal과 다른 native step의 비율이며, action 차이 비율과 다르다.
+
+| 조건 | 성공률 | 평균 return | 평균 decision 길이 | 노출 episode | 노출 native steps |
+|---|---:|---:|---:|---:|---:|
+| E0 | 98% | 30.555 | 9.80 | 0/50 | 0/940 (0.00%) |
+| E0 | 98% | 30.555 | 9.80 | 0/50 | 0/940 (0.00%) |
+| E1-g05 | 96% | 51.823 | 19.32 | 50/50 | 1897/1897 (100.00%) |
+| E1-g07 | 98% | 42.520 | 13.86 | 50/50 | 1344/1344 (100.00%) |
+| E1-g09 | 100% | 32.574 | 8.64 | 50/50 | 817/817 (100.00%) |
+| E2-global | 100% | 40.634 | 12.20 | 45/50 | 1079/1179 (91.52%) |
+| E2-mid | 98% | 30.180 | 9.76 | 1/50 | 100/936 (10.68%) |
+| E3 | 98% | 33.898 | 11.58 | 28/50 | 520/1120 (46.43%) |
+| E4 | 100% | 31.264 | 8.56 | 50/50 | 808/817 (98.90%) |
+| E5-d1 | 90% | 60.129 | 26.38 | 50/50 | 2635/2635 (100.00%) |
+| E5-d2 | 38% | 142.897 | 78.68 | 50/50 | 7853/7853 (100.00%) |
+| E6-m05 | 96% | 32.566 | 11.20 | 50/50 | 1081/1081 (100.00%) |
+| E6-m15 | 96% | 36.315 | 12.78 | 50/50 | 1238/1238 (100.00%) |
+| E7-f05 | 94% | 35.286 | 13.68 | 50/50 | 1325/1325 (100.00%) |
+| E7-f15 | 100% | 32.449 | 8.80 | 50/50 | 843/843 (100.00%) |
+
+E0 두 행은 서로 다른 run이며 합쳐서 독립 100회 실험으로 취급하지 않는다.
+두 run의 집계 통계가 같다는 것만으로 trajectory/초기 상태가 같다고 추정하지 않는다.
+
+**E2-mid의 98%는 mid-episode shift에 대한 강건성 근거로 제외한다.**
+노출 episode는 id=21(seed=22) 단 하나이고 success=0, 100 decisions/200 native steps 중
+마지막 100 native steps만 노출됐다. 첫 shift timestamp는 global native index 432
+(episode-local 100)이다. 나머지 49개는 미노출 상태에서 종료됐다.
+노출된 1개의 성공률 0% 역시 표본 수와 생존 선택 때문에 전체 조건의 성능 추정치로 삼지 않는다.
+
+E5-d2는 성공률 38%, 평균 길이 78.68로 명확한 성능 저하를 보여주는 frozen delay
+stress-test 후보다. 평균 return 142.897이 E0보다 높아도 성능 향상으로 해석하면 안 된다.
+성공 종료와 누적 dense reward 때문에 긴 실패 episode가 높은 return을 가질 수 있으므로
+success 및 length와 함께 보고한다. 50 episode 한 run으로 학습 seed 간 유의성은 주장하지 않는다.
+
+### 연구 사용 범위와 후속 조치
+
+- E0, E1, E5: 현재 자료로 **기술적 frozen baseline 결과**를 보고할 수 있다.
+  paired controlled comparison 인증은 reference 선택 및 초기 상태 증거가 보강될 때까지 보류한다.
+- E6/E7: 물리 효과 자체의 증거는 확보됐다. **reset-time mass+inertia/material perturbation의
+  예비 frozen baseline**으로 한정해 보고 가능하다. 질량만 변경했다고 쓰거나 mid-episode
+  intervention으로 쓰지 않는다. nested reference, live readback, source provenance 한계를 병기한다.
+- E2-global/E3: 노출이 섞인 schedule-level 결과로만 보고한다. post-shift 전용 성공률이나
+  동일 노출량의 adaptation 비교로 사용하지 않는다. episode별 phase/exposure를 함께 제시한다.
+- E4: schedule trace 노출은 확인됐지만 clipped action 공식 검증을 마치기 전
+  fully audited actuator condition으로 사용하지 않는다.
+- E2-mid: 현재 aggregate를 abrupt-shift robustness 증거에서 제외한다.
+- 모든 조건: frozen 결과를 world-model adaptation의 효과 또는 world model 실패 원인의
+  증거로 사용하지 않는다. 별도 adaptation 및 원인 분리 실험이 필요하다.
+
+다음 검증에는 최초 공유한 E0 run `E0-action_gain-nominal-20261027T074121-f841a79bd7`를
+reference로 명시하여, 그 E0와 13개 shift run만 포함한 별도 수집 디렉터리에서
+`audit_shift_logs.py`를 다시 실행하면 observation pairing의 모호성을 제거할 수 있다.
+원본 E0를 삭제하거나 기존 결과를 덮어쓰지 않는다. 이 재감사에도 simulator 재실행은 필요 없다.
+full initial-state pairing은 이 방법으로 복구되지 않으며 향후 실험의 별도 기록 항목이다.
+
+### 입력 증거
+
+- `audits/audit-20261027T112925-6773a02e/simulator_audit.json` — SHA256 `cf0e40fffd6abe20ec7d1a5bfd634dc09e9c199815a14c3118b12484e24fb434`
+- `audits/audit-20261027T112937-7f3ac48e/log_audit.json` — SHA256 `15877a7dfdef3042daa618638f1f6b5a5a595afdb6425dd127fda19feda7e6fb`
+
+---
+
+## 최초 로컬 감사 기록 (서버 자료 수신 전)
+
 ## 1. 결론과 증거 범위
 
 **현재 자료만으로 E0~E7 성공률을 world-model adaptation의 효과·필요성을 입증하는

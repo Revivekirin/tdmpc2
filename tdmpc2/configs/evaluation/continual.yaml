@@ -1,0 +1,7 @@
+mode: continual
+episodes: ${eval_episodes}
+seeds: ${eval_seeds}
+pairing: false
+min_exposure_fraction: 0.0
+require_shift_exposure: false
+pairing_atol: 1.0e-6

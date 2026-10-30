@@ -1,5 +1,8 @@
 defaults:
     - configs/dynamics_shift@dynamics_shift: nominal
+    - optional configs/schedule@schedule: null
+    - configs/adaptation@adaptation: frozen
+    - configs/evaluation@evaluation: standard
     - _self_
     - override hydra/launcher: submitit_local
 

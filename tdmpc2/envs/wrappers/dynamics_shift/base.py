@@ -100,7 +100,10 @@ class ShiftWrapper:
                       shift_segment_id=segment, shift_change_count=self.change_count,
                       nominal_parameter=deepcopy(self.parameter['nominal']), applied_parameter=deepcopy(value),
                       commanded_action=commanded, executed_action=executed.copy(),
-                      reward=float(reward), done=bool(done), mid_episode_supported=self.mid_episode_supported)
+                      reward=float(reward), done=bool(done), mid_episode_supported=self.mid_episode_supported,
+                      global_native_step=self.global_step, episode_native_step=self.episode_step,
+                      policy_decision_step=self.decision_step, regime_id=segment,
+                      intended_parameter=deepcopy(value), success=bool(info.get('success', False)))
         self._last = record
         info = dict(info, shift_record=record)
         self.global_step += 1

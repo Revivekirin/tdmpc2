@@ -95,6 +95,9 @@ def make_env(cfg):
 		render_camera_cfgs=dict(width=384, height=384),
 	)
 	shift_config = cfg.get('dynamics_shift', {})
+	if cfg.get('protocol_version', None) == 2:
+		from common.benchmark_config import runtime_shift
+		shift_config = runtime_shift(dict(dynamics_shift=shift_config, schedule=cfg.schedule))
 	if shift_config.get('enabled', False):
 		if cfg.get('shift_mode', 'nominal') != 'nominal':
 			raise ValueError('Do not mix legacy shift_mode and dynamics_shift settings.')

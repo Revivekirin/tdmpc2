@@ -1,3 +1,10 @@
+test_frozen_runner_and_pairing_with_fixture (test_benchmark_v2.RunnerTests.test_frozen_runner_and_pairing_with_fixture) ... ok
+test_exposure_boundaries (test_benchmark_v2.V2Tests.test_exposure_boundaries) ... ok
+test_hash (test_benchmark_v2.V2Tests.test_hash) ... ok
+test_invalid (test_benchmark_v2.V2Tests.test_invalid) ... ok
+test_legacy_archive_and_conversion (test_benchmark_v2.V2Tests.test_legacy_archive_and_conversion) ... ok
+test_matrix_and_overrides (test_benchmark_v2.V2Tests.test_matrix_and_overrides) ... ok
+test_v2_artifacts (test_benchmark_v2.V2Tests.test_v2_artifacts) ... ok
 test_abrupt_reset_clocks (test_dynamics_shift.ShiftTests.test_abrupt_reset_clocks) ... ok
 test_fixed_clip_hidden (test_dynamics_shift.ShiftTests.test_fixed_clip_hidden) ... ok
 test_invalid (test_dynamics_shift.ShiftTests.test_invalid) ... ok
@@ -23,7 +30,7 @@ test_random_resume_including_delay_queue (test_shift_benchmark.BenchmarkTests.te
 test_sequence_and_probe_holdout (test_shift_benchmark.BenchmarkTests.test_sequence_and_probe_holdout) ... ok
 test_supported_parameter_schedule_matrix (test_shift_benchmark.BenchmarkTests.test_supported_parameter_schedule_matrix) ... ok
 test_validation_and_seed_protocol (test_shift_benchmark.BenchmarkTests.test_validation_and_seed_protocol) ... ok
-test_every_preset_composes_and_constructs (test_shift_config.ConfigTests.test_every_preset_composes_and_constructs) ... skipped 'requires hydra-core to validate CLI composition'
+test_every_preset_composes_and_constructs (test_shift_config.ConfigTests.test_every_preset_composes_and_constructs) ... ok
 test_artifacts_and_unique_runs (test_shift_logging.LogTests.test_artifacts_and_unique_runs) ... ok
 test_friction_readback_isolated_restore (test_shift_physics.PhysicsTests.test_friction_readback_isolated_restore) ... ok
 test_mass_readback_reset_reconfigure (test_shift_physics.PhysicsTests.test_mass_readback_reset_reconfigure) ... ok
@@ -36,6 +43,33 @@ test_custom_model_size_override_and_condition_selection (test_shift_suite.SuiteT
 test_released_single_task_checkpoint_uses_five_million_preset (test_shift_suite.SuiteTests.test_released_single_task_checkpoint_uses_five_million_preset) ... ok
 
 ----------------------------------------------------------------------
-Ran 36 tests in 0.311s
+Ran 43 tests in 4.383s
 
-OK (skipped=4)
+OK (skipped=3)
+Benchmark artifacts: /private/var/folders/xn/vxzpxn1j1h59yv0c7p81jtnc0000gn/T/tmp9l6hd8az/benchmark/eval/dynamics_shift-action_gain-abrupt-20261030T103216-493ca40875
+{
+  "episodes": 2,
+  "std_ddof": 0,
+  "episode_return_mean": 15.720000000000002,
+  "episode_return_std": 0.0,
+  "success_mean": 0.0,
+  "success_std": 0.0,
+  "episode_length_mean": 3.0,
+  "episode_length_std": 0.0,
+  "shift_events_mean": 1.5,
+  "shift_events_std": 0.5
+}
+Benchmark artifacts: /private/var/folders/xn/vxzpxn1j1h59yv0c7p81jtnc0000gn/T/tmp9l6hd8az/benchmark/eval/dynamics_shift-action_gain-nominal-20261030T103216-2dca85afcb
+{
+  "episodes": 2,
+  "std_ddof": 0,
+  "episode_return_mean": 16.8,
+  "episode_return_std": 0.0,
+  "success_mean": 0.0,
+  "success_std": 0.0,
+  "episode_length_mean": 3.0,
+  "episode_length_std": 0.0,
+  "shift_events_mean": 0.0,
+  "shift_events_std": 0.0
+}
+Benchmark artifacts: /private/var/folders/xn/vxzpxn1j1h59yv0c7p81jtnc0000gn/T/tmp9l6hd8az/benchmark/eval/dynamics_shift-action_gain-nominal-20261030T103216-8b9c3a2915

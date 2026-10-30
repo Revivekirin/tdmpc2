@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 
 ADAPTATION_COMPONENTS = {
-    'frozen': (), 'dynamics_only': ('dynamics',), 'value_only': ('Q',),
+    'frozen': (), 'joint_rl': ('dynamics', 'Q', 'policy_prior'), 'dynamics_only': ('dynamics',), 'value_only': ('Q',),
     'dynamics_value': ('dynamics', 'Q'),
     'dynamics_value_policy': ('dynamics', 'Q', 'policy_prior'),
     'full': ('encoder', 'dynamics', 'reward', 'Q', 'policy_prior'),

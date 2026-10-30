@@ -1,0 +1,7 @@
+mode: paired
+episodes: ${eval_episodes}
+seeds: ${eval_seeds}
+pairing: true
+min_exposure_fraction: 0.0
+require_shift_exposure: false
+pairing_atol: 1.0e-6

@@ -1,0 +1,10 @@
+type: abrupt
+clock: episode_native_step
+reset_on_episode: true
+switch_step: 10
+interval: 200
+duration: 200
+amplitude: 1.0
+seed: 42
+values: null
+segments: []
