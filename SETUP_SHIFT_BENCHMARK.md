@@ -106,9 +106,10 @@ ManiSkill2는 기본적으로 현재 디렉터리의 `data/`에 asset을 받는�
 체크포인트는 저장소에 포함되어 있지 않다. 실제 기존 PickCube TD-MPC2
 체크포인트의 절대 경로를 지정한다. 모델 크기 `5`는 저장소의 기존 suite
 설정이며, 다른 체크포인트를 쓸 때는 해당 아키텍처 크기로 바꾼다.
-현재 사용한 `pickcube-nominal-seed0-500k/models/final.pt`에는 termination
-head가 있으므로 평가 명령에 `episodic=true`가 필요하다. 이 설정 없이
-실행하면 체크포인트 로딩에서 `_termination` 키 오류가 난다.
+`checkpoints/maniskill2/pick-cube-1.pt`에는 termination head가 없으므로
+아래 명령은 `episodic=false`를 사용한다. 별도로 학습된
+`pickcube-nominal-seed0-500k/models/final.pt`에는 termination head가 있어
+`episodic=true`가 필요하다. 평가기는 실행 전에 이 차이를 확인한다.
 
 ```bash
 export TD_MPC2_CHECKPOINT=/absolute/path/to/pick-cube-1.pt
@@ -141,17 +142,17 @@ python scripts/evaluate_shift_suite.py \
 
 ```bash
 cd tdmpc2
-python evaluate_shift.py task=pick-cube model_size=5 episodic=true \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=false \
   checkpoint="$TD_MPC2_CHECKPOINT" eval_episodes=50 seed=1 save_video=false \
   dynamics_shift=action_gain schedule=fixed adaptation=frozen evaluation=standard \
   dynamics_shift.parameter.shifted=0.7
 
-python evaluate_shift.py task=pick-cube model_size=5 episodic=true \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=false \
   checkpoint="$TD_MPC2_CHECKPOINT" eval_episodes=50 seed=1 save_video=false \
   dynamics_shift=action_gain schedule=abrupt adaptation=frozen evaluation=paired \
   schedule.switch_step=10 dynamics_shift.parameter.shifted=0.7
 
-python evaluate_shift.py task=pick-cube model_size=5 episodic=true \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=false \
   checkpoint="$TD_MPC2_CHECKPOINT" eval_episodes=50 seed=1 save_video=false \
   dynamics_shift=action_gain schedule=sequence adaptation=frozen evaluation=paired
 ```

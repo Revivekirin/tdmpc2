@@ -130,3 +130,6 @@ dmypy.json
 
 # Model checkpoints
 checkpoints/
+
+
+audits/

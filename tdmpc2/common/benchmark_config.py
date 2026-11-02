@@ -23,6 +23,18 @@ def config_hash(config):
                                      allow_nan=False, default=str).encode()).hexdigest()
 
 
+def validate_checkpoint_episodic(checkpoint, episodic, torch):
+    """Reject a mismatched termination head before constructing the simulator."""
+    payload = torch.load(checkpoint, map_location='cpu', weights_only=False)
+    state = payload['model'] if 'model' in payload else payload
+    has_termination = any(key.startswith('_termination.') for key in state)
+    if bool(episodic) != has_termination:
+        required = 'true' if has_termination else 'false'
+        raise ValueError(
+            f'Checkpoint termination head and episodic={str(bool(episodic)).lower()} disagree; '
+            f'use episodic={required} for {checkpoint}.')
+
+
 def normalize(cfg, overrides=()):
     """Return a resolved canonical config. Nested schedule is input compatibility only."""
     data = OmegaConf.to_container(cfg, resolve=True)

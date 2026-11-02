@@ -78,21 +78,23 @@ are otherwise unchanged.
 
 Use a compatible Linux/CUDA environment with the repository's ManiSkill2/SAPIEN
 stack and an existing pretrained checkpoint. Supply its actual absolute path.
-The model size and `episodic` flag must match the checkpoint. The tested
-`pickcube-nominal-seed0-500k/models/final.pt` requires `model_size=5` and
-`episodic=true` because it contains a termination head.
+The model size and `episodic` flag must match the checkpoint. The released
+`checkpoints/maniskill2/pick-cube-1.pt` has no termination head and requires
+`model_size=5 episodic=false`. The separately trained
+`pickcube-nominal-seed0-500k/models/final.pt` contains a termination head and
+requires `episodic=true`. Preflight rejects a mismatch before environment creation.
 
 ```bash
 cd tdmpc2
-python evaluate_shift.py task=pick-cube model_size=5 episodic=true checkpoint=/absolute/model.pt \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=false checkpoint=/absolute/model.pt \
   dynamics_shift=action_gain schedule=fixed adaptation=frozen evaluation=standard \
   dynamics_shift.parameter.shifted=0.7 save_video=false
 
-python evaluate_shift.py task=pick-cube model_size=5 episodic=true checkpoint=/absolute/model.pt \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=false checkpoint=/absolute/model.pt \
   dynamics_shift=action_gain schedule=abrupt adaptation=frozen evaluation=paired \
   schedule.switch_step=10 save_video=false
 
-python evaluate_shift.py task=pick-cube model_size=5 episodic=true checkpoint=/absolute/model.pt \
+python evaluate_shift.py task=pick-cube model_size=5 episodic=false checkpoint=/absolute/model.pt \
   dynamics_shift=action_gain schedule=sequence adaptation=frozen evaluation=paired \
   save_video=false
 ```

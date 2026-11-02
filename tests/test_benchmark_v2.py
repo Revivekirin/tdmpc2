@@ -8,7 +8,7 @@ import numpy as np
 from benchmark_imports import ROOT, package
 from test_dynamics_shift import Native
 from test_shift_benchmark import config
-from common.benchmark_config import normalize, cli_aliases, config_hash, runtime_shift
+from common.benchmark_config import normalize, cli_aliases, config_hash, runtime_shift, validate_checkpoint_episodic
 from common.benchmark_validation import validate
 from common.benchmark_metrics import exposure
 from hydra import initialize_config_dir, compose
@@ -74,6 +74,19 @@ class V2Tests(unittest.TestCase):
         self.assertEqual(config_hash(cfg),config_hash(dict(reversed(list(cfg.items())))))
         other=deepcopy(cfg);other['schedule']['switch_step']+=1
         self.assertNotEqual(config_hash(cfg),config_hash(other))
+
+    def test_checkpoint_episodic_mismatch(self):
+        class TorchFixture:
+            def __init__(self, state): self.state=state
+            def load(self, checkpoint, map_location, weights_only):
+                self.asserted=(checkpoint,map_location,weights_only)
+                return {'model':self.state}
+        for state, expected in [({'_termination.0.weight': 1}, True), ({'_reward.0.weight': 1}, False)]:
+            fixture=TorchFixture(state)
+            validate_checkpoint_episodic('fixture.pt', expected, fixture)
+            self.assertEqual(fixture.asserted,('fixture.pt','cpu',False))
+            with self.assertRaisesRegex(ValueError, f'episodic={str(expected).lower()}'):
+                validate_checkpoint_episodic('fixture.pt', not expected, fixture)
 
     def test_exposure_boundaries(self):
         env=package.ActionShiftWrapper(Native(),config(schedule='abrupt',switch_step=2));env.reset()

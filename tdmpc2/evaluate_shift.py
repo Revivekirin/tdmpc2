@@ -7,7 +7,7 @@ import hydra
 from common.parser import parse_cfg
 from common.shift_protocol import make_protocol, Transition
 from common.benchmark_logging import BenchmarkLog
-from common.benchmark_config import cli_aliases, normalize
+from common.benchmark_config import cli_aliases, normalize, validate_checkpoint_episodic
 from common.benchmark_metrics import initial_state, compare_initial
 
 
@@ -106,6 +106,7 @@ def evaluate_shift(cfg):
     import torch
     if not torch.cuda.is_available():
         raise RuntimeError('The unchanged TD-MPC2 agent requires CUDA for checkpoint evaluation.')
+    validate_checkpoint_episodic(checkpoint, cfg.episodic, torch)
     if cfg.evaluation['mode'] == 'standard':
         run_condition(cfg, seeds)
         return
