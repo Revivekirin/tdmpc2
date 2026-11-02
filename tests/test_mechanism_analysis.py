@@ -26,7 +26,7 @@ class MechanismTests(unittest.TestCase):
                 super().__init__()
                 self.weight = torch.nn.Parameter(torch.tensor([1.]))
                 self.batch_size = torch.Size([5])
-                self.state_device = torch.device('cpu')
+                self.state_device = None
 
             def state_dict(self):
                 return dict(weight=self.weight, batch_size=self.batch_size,
@@ -37,6 +37,9 @@ class MechanismTests(unittest.TestCase):
         model.batch_size = torch.Size([6])
         self.assertNotEqual(original, model_checksum(model))
         model.batch_size = torch.Size([5])
+        model.state_device = torch.device('cpu')
+        self.assertNotEqual(original, model_checksum(model))
+        model.state_device = None
         model.weight.data.add_(1)
         self.assertNotEqual(original, model_checksum(model))
 

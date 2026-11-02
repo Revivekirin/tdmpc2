@@ -215,7 +215,7 @@ also hashes the checkpoint file before/after. There are no optimizer calls and n
 checkpoint saves. CPU hashes and RNG preservation have been tested with toy models;
 real checkpoint hashes are produced only by actual server runs.
 TensorDict `state_dict()` metadata such as `torch.Size` and `torch.device` is
-included in the model hash as well.
+included in the model hash as well, including a `None` device marker.
 
 ## Validation status (2026-11-02)
 

@@ -44,6 +44,10 @@ def model_checksum(model):
         elif isinstance(value, torch.device):
             digest.update(b'torch.device:')
             digest.update(str(value).encode())
+        elif value is None:
+            digest.update(b'NoneType:None')
+        elif isinstance(value, (bool, int, float, str, torch.dtype)):
+            digest.update(f'{type(value).__name__}:{value!r}'.encode())
         else:
             raise TypeError(f'Unsupported model state entry {name}: {type(value).__name__}')
     return digest.hexdigest()
