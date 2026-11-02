@@ -6,12 +6,13 @@ installs dependencies nor downloads checkpoints nor claims simulator validation.
 import argparse
 import json
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
 
 
-def commands(root, checkpoints, episodes, actor_only=False):
+def commands(root, checkpoints, episodes, actor_only=False, exp_name=None):
     matrix = [
         ('pick-cube', 'pick-cube-1.pt', 'nominal', 'nominal', None),
         ('pick-cube', 'pick-cube-1.pt', 'action_delay', 'fixed', 2),
@@ -30,6 +31,9 @@ def commands(root, checkpoints, episodes, actor_only=False):
         if value is not None:
             args.append(f'dynamics_shift.parameter.shifted={value}')
         if schedule=='abrupt': args.append('schedule.switch_step=10')
+        if exp_name is not None:
+            controller = 'actor' if actor_only else 'mpc'
+            args.append(f'exp_name={exp_name}-{Path(checkpoint).stem}-{controller}')
         yield args
 
 
@@ -38,12 +42,15 @@ def main():
     parser.add_argument('--checkpoints', type=Path, required=True)
     parser.add_argument('--episodes', type=int, choices=[5,50], default=5)
     parser.add_argument('--actor-only', action='store_true')
+    parser.add_argument('--exp-name', help='Separate output directory below logs/<task>/<seed>/')
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--report', type=Path, default=Path('mechanism-suite-status.json'))
     args=parser.parse_args()
+    if args.exp_name is not None and not re.fullmatch(r'[A-Za-z0-9_-]+', args.exp_name):
+        parser.error('--exp-name must contain only letters, digits, underscore or hyphen')
     root=Path(__file__).resolve().parents[1]
     results=[]
-    for command in commands(root,args.checkpoints.resolve(),args.episodes,args.actor_only):
+    for command in commands(root,args.checkpoints.resolve(),args.episodes,args.actor_only,args.exp_name):
         print(shlex.join(command),flush=True)
         if args.execute:
             result=subprocess.run(command,cwd=root)

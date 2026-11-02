@@ -44,8 +44,15 @@ After checking smoke artifacts and separate simulator validation, run 50:
 
 ```bash
 python scripts/evaluate_mechanism_suite.py --checkpoints /absolute/checkpoint/directory \
-  --episodes 50 --execute --report mechanism-full-status.json
+  --episodes 50 --execute --exp-name mechanism-full-20261102 \
+  --report mechanism-full-status.json
 ```
+
+`--exp-name` puts each checkpoint/controller combination under
+`logs/<task>/<seed>/mechanism-full-20261102-<checkpoint>-mpc/benchmark/eval/`
+(or `-actor` with `--actor-only`). Each condition uses a unique timestamp and ID
+below that directory. The suite status JSON is
+written at the path passed to `--report`, relative to the current shell directory.
 
 The matrix covers PickCube-1 nominal, delay 2, gain 0.7, abrupt delay at native step
 10; PickCube-3 delay 2; StackCube-3 delay 2. Model size is 5 and episodic is false,
