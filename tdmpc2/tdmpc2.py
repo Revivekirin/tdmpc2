@@ -133,7 +133,11 @@ class TDMPC2(torch.nn.Module):
 			if self.cfg.episodic:
 				termination = torch.clip(termination + (self.model.termination(z, task) > 0.5).float(), max=1.)
 		action, _ = self.model.pi(z, task)
-		return G + discount * (1-termination) * self.model.Q(z, action, task, return_type='avg')
+		terminal = discount * (1-termination) * self.model.Q(z, action, task, return_type='avg')
+		trace = getattr(self, '_mechanism_trace', None)
+		if trace is not None:
+			trace.value(G, terminal)
+		return G + terminal
 
 	@torch.no_grad()
 	def _plan(self, obs, t0=False, eval_mode=False, task=None):
@@ -184,6 +188,9 @@ class TDMPC2(torch.nn.Module):
 			value = self._estimate_value(z, actions, task).nan_to_num(0)
 			elite_idxs = torch.topk(value.squeeze(1), self.cfg.num_elites, dim=0).indices
 			elite_value, elite_actions = value[elite_idxs], actions[:, elite_idxs]
+			trace = getattr(self, '_mechanism_trace', None)
+			if trace is not None:
+				trace.iteration(actions, value, elite_idxs, self.cfg.num_pi_trajs)
 
 			# Update parameters
 			max_value = elite_value.max(0).values
@@ -203,6 +210,9 @@ class TDMPC2(torch.nn.Module):
 		if not eval_mode:
 			a = a + std * torch.randn(self.cfg.action_dim, device=std.device)
 		self._prev_mean.copy_(mean)
+		trace = getattr(self, '_mechanism_trace', None)
+		if trace is not None:
+			trace.selected(elite_idxs[rand_idx], a.clamp(-1, 1))
 		return a.clamp(-1, 1)
 
 	def update_pi(self, zs, task):

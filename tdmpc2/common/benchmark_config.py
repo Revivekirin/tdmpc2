@@ -6,7 +6,7 @@ from copy import deepcopy
 from omegaconf import OmegaConf
 from common.shift_protocol import make_protocol, evaluation_seeds
 
-GROUPS = ('dynamics_shift', 'schedule', 'adaptation', 'evaluation')
+GROUPS = ('dynamics_shift', 'schedule', 'adaptation', 'evaluation', 'analysis')
 
 
 def cli_aliases(arguments):
@@ -85,6 +85,8 @@ def normalize(cfg, overrides=()):
         raise ValueError('Reset-only physics supports fixed/nominal schedules in v2.')
     # Benchmark nominal retains clocks through the identity diagnostic wrapper.
     shift['enabled'] = True
+    from common.mechanism_config import validate_analysis
+    validate_analysis(data.get('analysis', {'enabled': False}), data)
     data['protocol_version'] = 2
     return OmegaConf.create(data)
 

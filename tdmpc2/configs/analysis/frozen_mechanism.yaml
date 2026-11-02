@@ -1,0 +1,16 @@
+enabled: true
+mode: frozen_mechanism
+one_step: true
+multi_step: true
+planning: true
+counterfactual: true
+rollout_horizons: [1, 3, 5]
+decision_stride: 1
+max_logged_candidates: 256
+deterministic_probes: true
+q_head_mode: all
+policy_probe_mode: mean
+save_latents: false
+save_candidate_actions: true
+save_candidate_scores: true
+save_counterfactual_details: true

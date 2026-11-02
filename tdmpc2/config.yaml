@@ -3,6 +3,7 @@ defaults:
     - optional configs/schedule@schedule: null
     - configs/adaptation@adaptation: frozen
     - configs/evaluation@evaluation: standard
+    - configs/analysis@analysis: disabled
     - _self_
     - override hydra/launcher: submitit_local
 

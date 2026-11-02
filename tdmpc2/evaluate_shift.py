@@ -24,6 +24,7 @@ def run_condition(cfg, seeds):
     # before loading the frozen model.
     log = None
     starts = []
+    analysis = None
     try:
         shift = find_shift(env)
         agent = TDMPC2(cfg)
@@ -31,8 +32,14 @@ def run_condition(cfg, seeds):
         log = BenchmarkLog(cfg, seeds)
         log.metadata['native_action_bounds'] = dict(low=shift.action_space.low.tolist(), high=shift.action_space.high.tolist())
         log.write_json('metadata.json', log.metadata)
+        if getattr(cfg, 'analysis', {}).get('enabled', False):
+            from common.mechanism_analysis import MechanismAnalysis
+            analysis = MechanismAnalysis(cfg, agent, log.path, shift.action_space)
+            shift.analysis_capture_history = True
         print(f'Benchmark artifacts: {log.path.resolve()}')
         for episode_id, seed in enumerate(seeds):
+            if analysis is not None:
+                analysis.begin_episode(episode_id, seed)
             set_seed(seed)
             observation = env.reset(seed=seed)
             state = initial_state(env, observation)
@@ -42,6 +49,8 @@ def run_condition(cfg, seeds):
             native_start = shift.global_step
             frames = [env.render()] if cfg.save_video else None
             while not done:
+                if analysis is not None:
+                    analysis.before_action(length)
                 action = agent.act(observation, t0=length == 0, task=None)
                 next_observation, reward, done, info = env.step(action)
                 records = info['shift_native_steps']
@@ -51,6 +60,8 @@ def run_condition(cfg, seeds):
                 log.events(events)
                 transition = Transition(observation, action, float(reward), next_observation, bool(done),
                                         {'native_steps': records, 'shift_events': events})
+                if analysis is not None:
+                    analysis.observe(observation, action, next_observation, reward, done, info, events)
                 protocol.observe(transition)
                 log.transition(transition)
                 if events and cfg.benchmark_save_segment_state:
@@ -63,6 +74,8 @@ def run_condition(cfg, seeds):
                 observation = next_observation
                 if frames is not None:
                     frames.append(env.render())
+            if analysis is not None:
+                analysis.end_episode(info['success'])
             log.episode(dict(checkpoint=str(checkpoint), seed=seed, episode_id=episode_id,
                              shift_id=log.path.name, episode_return=total, success=float(info['success']),
                              episode_length=length, shift_events=event_count,
@@ -71,6 +84,8 @@ def run_condition(cfg, seeds):
             if frames is not None:
                 import imageio
                 imageio.mimsave(log.path / f'episode-{episode_id:04d}.mp4', frames, fps=15)
+        if analysis is not None:
+            analysis.finish()
         result = log.finish()
         output = (log.path, list(log.episodes), starts, result)
         log = None
@@ -79,6 +94,8 @@ def run_condition(cfg, seeds):
         print(json.dumps(result['summary_metrics'], indent=2))
         return output
     except Exception as exc:
+        if analysis is not None:
+            analysis.finish(error=f'{type(exc).__name__}: {exc}')
         if log is not None:
             log.finish(error=f'{type(exc).__name__}: {exc}')
         raise
@@ -127,6 +144,18 @@ def evaluate_shift(cfg):
                           nominal_exposure=a['exposure_fraction'], shifted_exposure=b['exposure_fraction']))
     report = dict(protocol_version=2, nominal_run=str(nominal[0].resolve()),
                   shifted_run=str(shifted[0].resolve()), full_state_pairing='UNVERIFIED', pairs=pairs)
+    if getattr(cfg, 'analysis', {}).get('enabled', False):
+        from common.mechanism_metrics import paired_summary
+        mechanism_nominal = json.loads((nominal[0] / 'mechanism/mechanism_summary.json').read_text())['episodes']
+        mechanism_shifted = json.loads((shifted[0] / 'mechanism/mechanism_summary.json').read_text())['episodes']
+        a_by_seed = {r['seed']: r for r in mechanism_nominal}
+        comparable = [(a_by_seed[r['seed']], r) for r in mechanism_shifted if r['seed'] in a_by_seed]
+        metric_differences = {key: paired_summary([b[key]-a[key] for a,b in comparable])
+                              for key in ('latent_prediction_mse', 'reward_absolute_error')}
+        report['mechanism_pairing'] = dict(status='approximate_pairing',
+            mechanism_episode_differences=metric_differences,
+            common_action_branch=False, return_difference=paired_summary([p['return_delta'] for p in pairs]),
+            interpretation='Seed-paired closed-loop outcomes; no exact state or candidate-return claim')
     (shifted[0] / 'paired.json').write_text(json.dumps(report, indent=2)+'\n')
 
 
