@@ -214,6 +214,8 @@ Q state, before and after analysis. A mismatch fails the run. Existing Benchmark
 also hashes the checkpoint file before/after. There are no optimizer calls and no
 checkpoint saves. CPU hashes and RNG preservation have been tested with toy models;
 real checkpoint hashes are produced only by actual server runs.
+TensorDict `state_dict()` metadata such as `torch.Size` and `torch.device` is
+included in the model hash as well.
 
 ## Validation status (2026-11-02)
 

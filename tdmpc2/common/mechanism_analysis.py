@@ -33,10 +33,19 @@ def preserve_rng():
 
 def model_checksum(model):
     digest = hashlib.sha256()
-    for name, tensor in sorted(model.state_dict().items()):
+    for name, value in sorted(model.state_dict().items()):
         digest.update(name.encode())
-        digest.update(str((tensor.dtype, tuple(tensor.shape))).encode())
-        digest.update(tensor.detach().cpu().contiguous().reshape(-1).view(torch.uint8).numpy().tobytes())
+        if isinstance(value, torch.Tensor):
+            digest.update(str((value.dtype, tuple(value.shape))).encode())
+            digest.update(value.detach().cpu().contiguous().reshape(-1).view(torch.uint8).numpy().tobytes())
+        elif isinstance(value, torch.Size):
+            digest.update(b'torch.Size:')
+            digest.update(repr(tuple(value)).encode())
+        elif isinstance(value, torch.device):
+            digest.update(b'torch.device:')
+            digest.update(str(value).encode())
+        else:
+            raise TypeError(f'Unsupported model state entry {name}: {type(value).__name__}')
     return digest.hexdigest()
 
 

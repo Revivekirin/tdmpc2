@@ -20,6 +20,26 @@ def options():
 
 
 class MechanismTests(unittest.TestCase):
+    def test_checksum_includes_tensordict_metadata(self):
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.tensor([1.]))
+                self.batch_size = torch.Size([5])
+                self.state_device = torch.device('cpu')
+
+            def state_dict(self):
+                return dict(weight=self.weight, batch_size=self.batch_size,
+                            device=self.state_device)
+
+        model = Model()
+        original = model_checksum(model)
+        model.batch_size = torch.Size([6])
+        self.assertNotEqual(original, model_checksum(model))
+        model.batch_size = torch.Size([5])
+        model.weight.data.add_(1)
+        self.assertNotEqual(original, model_checksum(model))
+
     def test_prediction_and_recorded_action_rollout(self):
         a = agent(load_planner())
         z = torch.zeros(1,2)
