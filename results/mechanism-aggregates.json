@@ -1,0 +1,840 @@
+{
+  "summary_zip_sha256": "a2a24e781bfa7e1a943dd7547046332203382e100fb6aded575506818adfd8ca",
+  "diagnostics_zip_sha256": "ee5423e998dc96817aa5f44a7591fb3f393bd6fc6da44f6157c7c45f8382cf96",
+  "suite_status": "PASS",
+  "suite_commands": 6,
+  "runs": [
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-action_delay-abrupt-20261102T080856-756f593b5f",
+      "checkpoint": "pick-cube-1.pt",
+      "task": "pick-cube",
+      "shift_type": "action_delay",
+      "schedule": "abrupt",
+      "status": "complete",
+      "episodes": 50,
+      "success": 0.86,
+      "mean_episode_length": 34.8,
+      "exposure_fraction": 0.8571428571428571,
+      "episode_mean_latent_mse": 0.0052944900707752795,
+      "episode_mean_reward_absolute_error": 0.9739674467498259,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 1740,
+        "executed_substitution_valid": 1704,
+        "commanded_mse_valid": 0.008033344679643692,
+        "executed_mse_valid": 0.0009521389767655285,
+        "episode_mean_command_minus_executed_mse": 0.004745275535815576,
+        "mean_command_executed_difference": 0.7348273937429848
+      },
+      "multi_step_same_starts": {
+        "starts": 1540,
+        "horizon_1": 0.008468409898528257,
+        "horizon_3": 0.019711230835300384,
+        "horizon_5": 0.014104837168392864
+      },
+      "q_head_std_episode_mean": 3.576061528803106,
+      "planner_final_iteration": {
+        "decisions": 1740,
+        "selected_policy_prior_episode_mean": 0.035216812467317844,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.0641743124400661,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.08325187427284018,
+        "actual_total_vs_reward_spearman_episode_mean": 0.6905507437438221,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.5538274970062503,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.2919024881908809,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.3157694085699,
+        "actual_total_vs_q_spearman_episode_mean": 0.6144132733696853,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.5390093129655265,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.2547630816317233,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.3470710784036096,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.9300595010714452,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.8238984718916651
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 10440
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 5220
+      },
+      "paired": {
+        "full_state_pairing": "UNVERIFIED",
+        "exposed_episodes": 40,
+        "success_transitions": {
+          "1->1": 43,
+          "1->0": 7
+        },
+        "mechanism_pairing": {
+          "status": "approximate_pairing",
+          "mechanism_episode_differences": {
+            "latent_prediction_mse": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": 0.004902192141608406,
+              "confidence_interval_95": [
+                0.0038012379185712744,
+                0.005853995939631498
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            },
+            "reward_absolute_error": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": 0.15108206929622842,
+              "confidence_interval_95": [
+                0.01815949944803387,
+                0.2862913317666085
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            }
+          },
+          "common_action_branch": false,
+          "return_difference": {
+            "status": "DESCRIPTIVE_ONLY",
+            "pairs": 50,
+            "mean": 129.12012252911924,
+            "confidence_interval_95": [
+              89.14250118019804,
+              171.62489580632374
+            ],
+            "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+          },
+          "interpretation": "Seed-paired closed-loop outcomes; no exact state or candidate-return claim"
+        }
+      }
+    },
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-action_delay-fixed-20261102T070326-fb25905f48",
+      "checkpoint": "pick-cube-1.pt",
+      "task": "pick-cube",
+      "shift_type": "action_delay",
+      "schedule": "fixed",
+      "status": "complete",
+      "episodes": 50,
+      "success": 0.32,
+      "mean_episode_length": 82.28,
+      "exposure_fraction": 1.0,
+      "episode_mean_latent_mse": 0.007133405271345792,
+      "episode_mean_reward_absolute_error": 0.48089892808429474,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 4114,
+        "executed_substitution_valid": 4102,
+        "commanded_mse_valid": 0.007124951881636039,
+        "executed_mse_valid": 0.0023123421371477842,
+        "episode_mean_command_minus_executed_mse": 0.005111664398187071,
+        "mean_command_executed_difference": 1.0485828901649221
+      },
+      "multi_step_same_starts": {
+        "starts": 3914,
+        "horizon_1": 0.007321367303317081,
+        "horizon_3": 0.015752897398041237,
+        "horizon_5": 0.016902817496402912
+      },
+      "q_head_std_episode_mean": 9.88860107237544,
+      "planner_final_iteration": {
+        "decisions": 4114,
+        "selected_policy_prior_episode_mean": 0.012477203188967894,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.03906442669992022,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.05876025028285957,
+        "actual_total_vs_reward_spearman_episode_mean": 0.3982860329950232,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.3066654157173098,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.5323421859463235,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.5392474505423366,
+        "actual_total_vs_q_spearman_episode_mean": 0.8205064449672346,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.7501796317293266,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.19734034501556935,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.24799679180665343,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.7726992683840116,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.6415581471179467
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 24684
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 12342
+      },
+      "paired": {
+        "full_state_pairing": "UNVERIFIED",
+        "exposed_episodes": 50,
+        "success_transitions": {
+          "1->0": 34,
+          "1->1": 16
+        },
+        "mechanism_pairing": {
+          "status": "approximate_pairing",
+          "mechanism_episode_differences": {
+            "latent_prediction_mse": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": 0.006741107342178918,
+              "confidence_interval_95": [
+                0.006027389299672591,
+                0.007448247890374735
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            },
+            "reward_absolute_error": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": -0.3419864493693027,
+              "confidence_interval_95": [
+                -0.4967508722800531,
+                -0.21234218597294532
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            }
+          },
+          "common_action_branch": false,
+          "return_difference": {
+            "status": "DESCRIPTIVE_ONLY",
+            "pairs": 50,
+            "mean": 115.11225614943214,
+            "confidence_interval_95": [
+              88.43474861179311,
+              145.54449701645768
+            ],
+            "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+          },
+          "interpretation": "Seed-paired closed-loop outcomes; no exact state or candidate-return claim"
+        }
+      }
+    },
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-action_delay-fixed-20261102T083426-0d5ac5d6ce",
+      "checkpoint": "pick-cube-3.pt",
+      "task": "pick-cube",
+      "shift_type": "action_delay",
+      "schedule": "fixed",
+      "status": "complete",
+      "episodes": 50,
+      "success": 0.34,
+      "mean_episode_length": 80.36,
+      "exposure_fraction": 1.0,
+      "episode_mean_latent_mse": 0.006348563932594658,
+      "episode_mean_reward_absolute_error": 0.45067545253361246,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 4018,
+        "executed_substitution_valid": 4003,
+        "commanded_mse_valid": 0.006185222276326476,
+        "executed_mse_valid": 0.0021570103679434027,
+        "episode_mean_command_minus_executed_mse": 0.00443606907652504,
+        "mean_command_executed_difference": 1.089419605979263
+      },
+      "multi_step_same_starts": {
+        "starts": 3818,
+        "horizon_1": 0.006347765580501981,
+        "horizon_3": 0.013765952417459214,
+        "horizon_5": 0.015438545523963882
+      },
+      "q_head_std_episode_mean": 12.096190825831572,
+      "planner_final_iteration": {
+        "decisions": 4018,
+        "selected_policy_prior_episode_mean": 0.024662600612600612,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.04084959722882131,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.057135736742057824,
+        "actual_total_vs_reward_spearman_episode_mean": 0.34549525441887247,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.2709055424277392,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.590336596574608,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.5970348011644565,
+        "actual_total_vs_q_spearman_episode_mean": 0.8581523960857217,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.7933789413167983,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.20020152698247887,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.2579843071598067,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.7831837784740483,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.6528790802539998
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 24108
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 12054
+      },
+      "paired": {
+        "full_state_pairing": "UNVERIFIED",
+        "exposed_episodes": 50,
+        "success_transitions": {
+          "1->0": 33,
+          "1->1": 17
+        },
+        "mechanism_pairing": {
+          "status": "approximate_pairing",
+          "mechanism_episode_differences": {
+            "latent_prediction_mse": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": 0.005912887326763012,
+              "confidence_interval_95": [
+                0.005227286838782257,
+                0.006559010479647151
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            },
+            "reward_absolute_error": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": -0.3407668294164409,
+              "confidence_interval_95": [
+                -0.49201997725723634,
+                -0.17115491539501507
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            }
+          },
+          "common_action_branch": false,
+          "return_difference": {
+            "status": "DESCRIPTIVE_ONLY",
+            "pairs": 50,
+            "mean": 97.93499127064595,
+            "confidence_interval_95": [
+              78.38856719391345,
+              118.5998473122909
+            ],
+            "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+          },
+          "interpretation": "Seed-paired closed-loop outcomes; no exact state or candidate-return claim"
+        }
+      }
+    },
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-action_gain-fixed-20261102T075741-81ad1b6a35",
+      "checkpoint": "pick-cube-1.pt",
+      "task": "pick-cube",
+      "shift_type": "action_gain",
+      "schedule": "fixed",
+      "status": "complete",
+      "episodes": 50,
+      "success": 1.0,
+      "mean_episode_length": 10.6,
+      "exposure_fraction": 1.0,
+      "episode_mean_latent_mse": 0.0016415856948968804,
+      "episode_mean_reward_absolute_error": 0.6984006951261076,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 530,
+        "executed_substitution_valid": 486,
+        "commanded_mse_valid": 0.0018021551538214477,
+        "executed_mse_valid": 0.0005394014341049557,
+        "episode_mean_command_minus_executed_mse": 0.001353421447445091,
+        "mean_command_executed_difference": 0.2958608911038851
+      },
+      "multi_step_same_starts": {
+        "starts": 330,
+        "horizon_1": 0.001985635765066201,
+        "horizon_3": 0.006779210097121188,
+        "horizon_5": 0.013705590009251891
+      },
+      "q_head_std_episode_mean": 2.2462870404242747,
+      "planner_final_iteration": {
+        "decisions": 530,
+        "selected_policy_prior_episode_mean": 0.03837301587301587,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.048365947777712484,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.06914476125760714,
+        "actual_total_vs_reward_spearman_episode_mean": 0.6250760469399382,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.4864864030480097,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.3550220366149159,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.39788188349474074,
+        "actual_total_vs_q_spearman_episode_mean": 0.7474648255985834,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.6611879949045698,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.23185641431152268,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.32284877119044386,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.9186012455337413,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.7977972419639789
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 3180
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 1590
+      },
+      "paired": {
+        "full_state_pairing": "UNVERIFIED",
+        "exposed_episodes": 50,
+        "success_transitions": {
+          "1->1": 50
+        },
+        "mechanism_pairing": {
+          "status": "approximate_pairing",
+          "mechanism_episode_differences": {
+            "latent_prediction_mse": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": 0.001249287765730007,
+              "confidence_interval_95": [
+                0.0011018903260741001,
+                0.0013886435608057213
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            },
+            "reward_absolute_error": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": -0.12448468232748992,
+              "confidence_interval_95": [
+                -0.26902834123661507,
+                0.035751853007822014
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            }
+          },
+          "common_action_branch": false,
+          "return_difference": {
+            "status": "DESCRIPTIVE_ONLY",
+            "pairs": 50,
+            "mean": 6.177520996928215,
+            "confidence_interval_95": [
+              3.425476223602891,
+              8.631097537457942
+            ],
+            "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+          },
+          "interpretation": "Seed-paired closed-loop outcomes; no exact state or candidate-return claim"
+        }
+      }
+    },
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-action_gain-nominal-20261102T065344-eeda50e8b8",
+      "checkpoint": "pick-cube-1.pt",
+      "task": "pick-cube",
+      "shift_type": "action_gain",
+      "schedule": "nominal",
+      "status": "complete",
+      "episodes": 50,
+      "success": 1.0,
+      "mean_episode_length": 8.24,
+      "exposure_fraction": 0.0,
+      "episode_mean_latent_mse": 0.0003922979291668735,
+      "episode_mean_reward_absolute_error": 0.8228853774535975,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 412,
+        "executed_substitution_valid": 368,
+        "commanded_mse_valid": 0.0005591228559183037,
+        "executed_mse_valid": 0.0005591228559183037,
+        "episode_mean_command_minus_executed_mse": 0.0,
+        "mean_command_executed_difference": 0.0
+      },
+      "multi_step_same_starts": {
+        "starts": 212,
+        "horizon_1": 0.0008403026964549768,
+        "horizon_3": 0.002201785789197256,
+        "horizon_5": 0.0025560145225787187
+      },
+      "q_head_std_episode_mean": 1.8738290038610315,
+      "planner_final_iteration": {
+        "decisions": 412,
+        "selected_policy_prior_episode_mean": 0.03111183261183261,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.05538095238095238,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.06477055073622731,
+        "actual_total_vs_reward_spearman_episode_mean": 0.6546278311393499,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.5135092214789231,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.3791269309637731,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.38601421046890916,
+        "actual_total_vs_q_spearman_episode_mean": 0.713092980726809,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.6269092203022663,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.20035897319055213,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.3210362879113395,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.9200163109916667,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.8019344322463966
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 2472
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 1236
+      }
+    },
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-nominal-action_delay-nominal-20261102T065838-73041f6eb6",
+      "checkpoint": "pick-cube-1.pt",
+      "task": "pick-cube",
+      "shift_type": "action_delay",
+      "schedule": "nominal",
+      "status": "complete",
+      "episodes": 50,
+      "success": 1.0,
+      "mean_episode_length": 8.24,
+      "exposure_fraction": 0.0,
+      "episode_mean_latent_mse": 0.0003922979291668735,
+      "episode_mean_reward_absolute_error": 0.8228853774535975,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 412,
+        "executed_substitution_valid": 368,
+        "commanded_mse_valid": 0.0005591228559183037,
+        "executed_mse_valid": 0.0005591228559183037,
+        "episode_mean_command_minus_executed_mse": 0.0,
+        "mean_command_executed_difference": 0.0
+      },
+      "multi_step_same_starts": {
+        "starts": 212,
+        "horizon_1": 0.0008403026964549768,
+        "horizon_3": 0.002201785789197256,
+        "horizon_5": 0.0025560145225787187
+      },
+      "q_head_std_episode_mean": 1.8738290038610315,
+      "planner_final_iteration": {
+        "decisions": 412,
+        "selected_policy_prior_episode_mean": 0.03111183261183261,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.05538095238095238,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.06477055073622731,
+        "actual_total_vs_reward_spearman_episode_mean": 0.6546278311393499,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.5135092214789231,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.3791269309637731,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.38601421046890916,
+        "actual_total_vs_q_spearman_episode_mean": 0.713092980726809,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.6269092203022663,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.20035897319055213,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.3210362879113395,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.9200163109916667,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.8019344322463966
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 2472
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 1236
+      }
+    },
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-nominal-action_delay-nominal-20261102T080410-bdd68f506b",
+      "checkpoint": "pick-cube-1.pt",
+      "task": "pick-cube",
+      "shift_type": "action_delay",
+      "schedule": "nominal",
+      "status": "complete",
+      "episodes": 50,
+      "success": 1.0,
+      "mean_episode_length": 8.24,
+      "exposure_fraction": 0.0,
+      "episode_mean_latent_mse": 0.0003922979291668735,
+      "episode_mean_reward_absolute_error": 0.8228853774535975,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 412,
+        "executed_substitution_valid": 368,
+        "commanded_mse_valid": 0.0005591228559183037,
+        "executed_mse_valid": 0.0005591228559183037,
+        "episode_mean_command_minus_executed_mse": 0.0,
+        "mean_command_executed_difference": 0.0
+      },
+      "multi_step_same_starts": {
+        "starts": 212,
+        "horizon_1": 0.0008403026964549768,
+        "horizon_3": 0.002201785789197256,
+        "horizon_5": 0.0025560145225787187
+      },
+      "q_head_std_episode_mean": 1.8738290038610315,
+      "planner_final_iteration": {
+        "decisions": 412,
+        "selected_policy_prior_episode_mean": 0.03111183261183261,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.05538095238095238,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.06477055073622731,
+        "actual_total_vs_reward_spearman_episode_mean": 0.6546278311393499,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.5135092214789231,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.3791269309637731,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.38601421046890916,
+        "actual_total_vs_q_spearman_episode_mean": 0.713092980726809,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.6269092203022663,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.20035897319055213,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.3210362879113395,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.9200163109916667,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.8019344322463966
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 2472
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 1236
+      }
+    },
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-nominal-action_delay-nominal-20261102T082942-e0386399b4",
+      "checkpoint": "pick-cube-3.pt",
+      "task": "pick-cube",
+      "shift_type": "action_delay",
+      "schedule": "nominal",
+      "status": "complete",
+      "episodes": 50,
+      "success": 1.0,
+      "mean_episode_length": 8.02,
+      "exposure_fraction": 0.0,
+      "episode_mean_latent_mse": 0.00043567660583164605,
+      "episode_mean_reward_absolute_error": 0.7914422819500534,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 401,
+        "executed_substitution_valid": 360,
+        "commanded_mse_valid": 0.0005903888363844897,
+        "executed_mse_valid": 0.0005903888363844897,
+        "episode_mean_command_minus_executed_mse": 0.0,
+        "mean_command_executed_difference": 0.0
+      },
+      "multi_step_same_starts": {
+        "starts": 201,
+        "horizon_1": 0.0008919939283164715,
+        "horizon_3": 0.002202712464643253,
+        "horizon_5": 0.003972535529508388
+      },
+      "q_head_std_episode_mean": 1.8940400567316604,
+      "planner_final_iteration": {
+        "decisions": 401,
+        "selected_policy_prior_episode_mean": 0.06363549783549784,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.030054689754689754,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.08199826946489626,
+        "actual_total_vs_reward_spearman_episode_mean": 0.6913168992725545,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.5454327522330247,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.3309336219336219,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.3536827337814123,
+        "actual_total_vs_q_spearman_episode_mean": 0.7259272570568877,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.6323698897823111,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.2601399711399711,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.3138255200936436,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.9278001960903449,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.8144168297278317
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 2406
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 1203
+      }
+    },
+    {
+      "path": "logs/pick-cube/1/default/benchmark/eval/dynamics_shift-nominal-action_gain-nominal-20261102T075225-3b21100a13",
+      "checkpoint": "pick-cube-1.pt",
+      "task": "pick-cube",
+      "shift_type": "action_gain",
+      "schedule": "nominal",
+      "status": "complete",
+      "episodes": 50,
+      "success": 1.0,
+      "mean_episode_length": 8.24,
+      "exposure_fraction": 0.0,
+      "episode_mean_latent_mse": 0.0003922979291668735,
+      "episode_mean_reward_absolute_error": 0.8228853774535975,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 412,
+        "executed_substitution_valid": 368,
+        "commanded_mse_valid": 0.0005591228559183037,
+        "executed_mse_valid": 0.0005591228559183037,
+        "episode_mean_command_minus_executed_mse": 0.0,
+        "mean_command_executed_difference": 0.0
+      },
+      "multi_step_same_starts": {
+        "starts": 212,
+        "horizon_1": 0.0008403026964549768,
+        "horizon_3": 0.002201785789197256,
+        "horizon_5": 0.0025560145225787187
+      },
+      "q_head_std_episode_mean": 1.8738290038610315,
+      "planner_final_iteration": {
+        "decisions": 412,
+        "selected_policy_prior_episode_mean": 0.03111183261183261,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.05538095238095238,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.06477055073622731,
+        "actual_total_vs_reward_spearman_episode_mean": 0.6546278311393499,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.5135092214789231,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.3791269309637731,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.38601421046890916,
+        "actual_total_vs_q_spearman_episode_mean": 0.713092980726809,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.6269092203022663,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.20035897319055213,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.3210362879113395,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.9200163109916667,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.8019344322463966
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 2472
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 1236
+      }
+    },
+    {
+      "path": "logs/stack-cube/1/default/benchmark/eval/dynamics_shift-action_delay-fixed-20261102T093639-6fc4a9c997",
+      "checkpoint": "stack-cube-3.pt",
+      "task": "stack-cube",
+      "shift_type": "action_delay",
+      "schedule": "fixed",
+      "status": "complete",
+      "episodes": 50,
+      "success": 0.08,
+      "mean_episode_length": 93.66,
+      "exposure_fraction": 1.0,
+      "episode_mean_latent_mse": 0.0030139161236743452,
+      "episode_mean_reward_absolute_error": 2.1878758557212468,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 4683,
+        "executed_substitution_valid": 4680,
+        "commanded_mse_valid": 0.0030160448666417023,
+        "executed_mse_valid": 0.0009919269193715003,
+        "episode_mean_command_minus_executed_mse": 0.002047341798509658,
+        "mean_command_executed_difference": 1.138837555352257
+      },
+      "multi_step_same_starts": {
+        "starts": 4483,
+        "horizon_1": 0.003064293008005157,
+        "horizon_3": 0.007308389473839804,
+        "horizon_5": 0.008898518922536283
+      },
+      "q_head_std_episode_mean": 52.84518887039476,
+      "planner_final_iteration": {
+        "decisions": 4683,
+        "selected_policy_prior_episode_mean": 0.046,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.027298082309847014,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.04212712910887119,
+        "actual_total_vs_reward_spearman_episode_mean": 0.22433542978748516,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.1638248576379246,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.6593781331155945,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.671617017516595,
+        "actual_total_vs_q_spearman_episode_mean": 0.9376776883963567,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.8717962300183206,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.13815732997652502,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.16579840025704862,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.6026708576559147,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.4685787076922657
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 28098
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 14049
+      },
+      "paired": {
+        "full_state_pairing": "UNVERIFIED",
+        "exposed_episodes": 50,
+        "success_transitions": {
+          "1->0": 45,
+          "1->1": 4,
+          "0->0": 1
+        },
+        "mechanism_pairing": {
+          "status": "approximate_pairing",
+          "mechanism_episode_differences": {
+            "latent_prediction_mse": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": 0.00247503833987833,
+              "confidence_interval_95": [
+                0.002157378007346527,
+                0.0027665564631302554
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            },
+            "reward_absolute_error": {
+              "status": "DESCRIPTIVE_ONLY",
+              "pairs": 50,
+              "mean": -0.44723560091375797,
+              "confidence_interval_95": [
+                -0.9650766609866706,
+                0.0669160903333291
+              ],
+              "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+            }
+          },
+          "common_action_branch": false,
+          "return_difference": {
+            "status": "DESCRIPTIVE_ONLY",
+            "pairs": 50,
+            "mean": 186.72333360765128,
+            "confidence_interval_95": [
+              111.98361201158258,
+              266.4041546181179
+            ],
+            "method": "paired episode percentile bootstrap; 2000 replicates; private seed 0"
+          },
+          "interpretation": "Seed-paired closed-loop outcomes; no exact state or candidate-return claim"
+        }
+      }
+    },
+    {
+      "path": "logs/stack-cube/1/default/benchmark/eval/dynamics_shift-nominal-action_delay-nominal-20261102T092656-ffd430dbc5",
+      "checkpoint": "stack-cube-3.pt",
+      "task": "stack-cube",
+      "shift_type": "action_delay",
+      "schedule": "nominal",
+      "status": "complete",
+      "episodes": 50,
+      "success": 0.98,
+      "mean_episode_length": 14.32,
+      "exposure_fraction": 0.0,
+      "episode_mean_latent_mse": 0.0005388777837960153,
+      "episode_mean_reward_absolute_error": 2.6351114566350047,
+      "checkpoint_unchanged": true,
+      "model_unchanged": true,
+      "model_hash_equal": true,
+      "simulator_validation": "UNVERIFIED_BY_THIS_ANALYSIS",
+      "one_step": {
+        "decisions": 716,
+        "executed_substitution_valid": 694,
+        "commanded_mse_valid": 0.0008220540518046588,
+        "executed_mse_valid": 0.0008220540518046588,
+        "episode_mean_command_minus_executed_mse": 0.0,
+        "mean_command_executed_difference": 0.0
+      },
+      "multi_step_same_starts": {
+        "starts": 516,
+        "horizon_1": 0.0009700130733827516,
+        "horizon_3": 0.0026113610004732304,
+        "horizon_5": 0.004042412670786188
+      },
+      "q_head_std_episode_mean": 40.52175175155738,
+      "planner_final_iteration": {
+        "decisions": 716,
+        "selected_policy_prior_episode_mean": 0.013679311027137115,
+        "actual_total_vs_reward_top1_agreement_episode_mean": 0.0625331628141973,
+        "actual_total_vs_reward_top_k_jaccard_episode_mean": 0.08957100694289646,
+        "actual_total_vs_reward_spearman_episode_mean": 0.43033224663816577,
+        "actual_total_vs_reward_kendall_tau_b_episode_mean": 0.32689774939393373,
+        "actual_total_vs_q_top1_agreement_episode_mean": 0.3288302884011962,
+        "actual_total_vs_q_top_k_jaccard_episode_mean": 0.39478183722316396,
+        "actual_total_vs_q_spearman_episode_mean": 0.8284522791991609,
+        "actual_total_vs_q_kendall_tau_b_episode_mean": 0.7223014564094674,
+        "actual_vs_diagnostic_top1_agreement_episode_mean": 0.23784257479536372,
+        "actual_vs_diagnostic_top_k_jaccard_episode_mean": 0.28495589121036446,
+        "actual_vs_diagnostic_spearman_episode_mean": 0.8112084484648764,
+        "actual_vs_diagnostic_kendall_tau_b_episode_mean": 0.6675938249721213
+      },
+      "planner_iteration_status_counts": {
+        "VALID": 4296
+      },
+      "planner_final_comparison_status_counts": {
+        "VALID": 2148
+      }
+    }
+  ],
+  "weighting": "episode means for ranking/Q; same valid decisions for command/execution MSE",
+  "interpretation": "descriptive frozen-model associations; no true candidate returns or exact state branching"
+}

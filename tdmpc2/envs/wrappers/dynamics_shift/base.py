@@ -92,7 +92,8 @@ class ShiftWrapper:
         value, segment = self.current_parameter()
         self._record_parameter(value, segment)
         history = self.__dict__.get('analysis_capture_history', False)
-        queue_before = deepcopy(list(self.__dict__.get('queue', []))) if history else None
+        pairing_observer = self.__dict__.get('pairing_observer')
+        queue_before = deepcopy(list(self.__dict__.get('queue', []))) if history or pairing_observer else None
         executed = self.transform(commanded, value)
         obs, reward, done, info = self.env.step(executed)
         record = dict(episode_id=self.episode_id, native_step=self.global_step, global_step=self.global_step,
@@ -111,6 +112,8 @@ class ShiftWrapper:
             record['analysis_native_terminated'] = bool(done and not info.get('TimeLimit.truncated', False))
             record['analysis_delay_queue_before'] = queue_before if 'queue' in self.__dict__ else 'NOT_APPLICABLE'
         self._last = record
+        if pairing_observer is not None:
+            pairing_observer(obs, record, queue_before)
         info = dict(info, shift_record=record)
         self.global_step += 1
         self.episode_step += 1
