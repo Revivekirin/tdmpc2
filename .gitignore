@@ -4,6 +4,7 @@ tdmpc2/outputs/
 tdmpc2/wandb/
 outputs/
 logs/
+results/
 
 # HPC
 nautilus/*.yaml
