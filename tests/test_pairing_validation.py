@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tdmpc2'))
 sys.path.insert(0, str(ROOT / 'scripts'))
 from common.pairing_validation import compare_prefix
+from common.pairing_root_cause import compare_runs
 from validate_pairing import compare_decisions
 from benchmark_imports import package
 from test_dynamics_shift import Native
@@ -22,6 +23,37 @@ def row(step, value=0.):
 
 
 class PairingValidationTests(unittest.TestCase):
+    def test_root_cause_boundary_order_and_tolerance(self):
+        def run():
+            return dict(initial=dict(observation=[0.], simulator=[0.], controller=[0.], rng='same'),
+                        initial_policy_rng={'torch_cpu': 'same'},
+                        decisions=[dict(action=[0.], rng_components_before={'torch_cpu': 'same'},
+                                        rng_components_after={'torch_cpu': 'same'},
+                                        planner=dict(encoded=[0.], iterations=[dict(actions=[[0.]],
+                                            reward=[0.], terminal_q=[0.], score=[0.], elite_ids=[0])],
+                                            selection=dict(selected_candidate_id=0)))],
+                        native=[dict(row(0), decision_step=0)])
+        a, b = run(), run()
+        b['decisions'][0]['planner']['iterations'][0]['actions'][0][0] = 1e-7
+        b['decisions'][0]['action'][0] = .1
+        b['native'][0]['delay_queue_after'] = [[0.]]
+        result = compare_runs(a, b, 1e-6, 10)
+        self.assertEqual(result['first_exact_divergence']['boundary'], 'iteration_0_candidate_actions')
+        self.assertEqual(result['first_tolerance_divergence']['boundary'], 'selected_action')
+        self.assertEqual(result['first_tolerance_divergence']['first_numeric_right'], .1)
+        self.assertEqual(result['simulator_full_state'], 'UNVERIFIED')
+
+    def test_root_cause_queue_only_is_structural(self):
+        a = dict(initial=dict(observation=[0.], simulator=[0.], controller=[0.], rng='same'),
+                 initial_policy_rng='same', decisions=[dict(action=[0.], rng_components_before='same',
+                 rng_components_after='same', planner=None)], native=[dict(row(0), decision_step=0)])
+        b = deepcopy(a)
+        b['native'][0]['delay_queue_after'] = [[0.]]
+        result = compare_runs(a, b, 1e-6, 10)
+        self.assertEqual(result['first_exact_divergence']['boundary'], 'native_delay_queue_after')
+        self.assertIsNone(result['first_substantive_exact_divergence'])
+        self.assertIsNone(result['first_tolerance_divergence'])
+
     def test_first_observed_divergence(self):
         reference = [row(i) for i in range(10)]
         shifted = deepcopy(reference)

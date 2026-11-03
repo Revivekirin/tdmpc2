@@ -62,7 +62,8 @@ def run_condition(cfg, seeds, capture_prefix=False):
             while not done:
                 if analysis is not None:
                     analysis.before_action(length)
-                action = agent.act(observation, t0=length == 0, task=None)
+                action = agent.act(observation, t0=length == 0,
+                                   eval_mode=cfg.evaluation.get('policy_eval_mode', False), task=None)
                 next_observation, reward, done, info = env.step(action)
                 records = info['shift_native_steps']
                 events = shift.drain_events()

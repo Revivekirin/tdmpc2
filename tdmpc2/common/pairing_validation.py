@@ -11,12 +11,20 @@ FIELDS = ('commanded_action', 'executed_action', 'delay_queue_before',
 
 def rng_digest():
     """Capture global policy RNGs without drawing from them."""
+    return hashlib.sha256(json.dumps(rng_hashes(), sort_keys=True).encode()).hexdigest()
+
+
+def rng_hashes():
+    """Separate Python, NumPy, Torch CPU and each CUDA generator digest."""
     import torch
     from envs.wrappers.dynamics_shift.logging import encode_state
     state = dict(python=repr(random.getstate()), numpy=encode_state(np.random.get_state()),
                  torch_cpu=torch.get_rng_state().tolist(),
                  torch_cuda=[value.tolist() for value in torch.cuda.get_rng_state_all()])
-    return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
+    digest = lambda value: hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+    return dict(python=digest(state['python']), numpy=digest(state['numpy']),
+                torch_cpu=digest(state['torch_cpu']),
+                torch_cuda=[digest(value) for value in state['torch_cuda']])
 
 
 def native_record(env, observation, shift_record, queue_before):
@@ -24,6 +32,7 @@ def native_record(env, observation, shift_record, queue_before):
     from envs.wrappers.dynamics_shift.logging import encode_state
     state = initial_state(env, observation)
     return dict(native_step=shift_record['episode_native_step'],
+                decision_step=shift_record['policy_decision_step'],
                 parameter=encode_state(shift_record['applied_parameter']),
                 commanded_action=encode_state(shift_record['commanded_action']),
                 executed_action=encode_state(shift_record['executed_action']),

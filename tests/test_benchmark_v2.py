@@ -158,7 +158,7 @@ class RunnerTests(unittest.TestCase):
         class Agent:
             def __init__(self,cfg): pass
             def load(self,path): pass
-            def act(self,obs,t0,task): return Tensor(np.full(4,.2))
+            def act(self,obs,t0,task,eval_mode=False): return Tensor(np.full(4,.2))
         modules={'envs':types.SimpleNamespace(make_env=Environment),
                  'envs.wrappers.dynamics_shift.logging':logging,
                  'tdmpc2':types.SimpleNamespace(TDMPC2=Agent),

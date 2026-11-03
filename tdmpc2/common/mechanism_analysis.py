@@ -100,7 +100,9 @@ class MechanismAnalysis:
         self.last_change = None
         self.write_json('manifest.json', dict(schema_version=1, analysis=cfg.analysis,
             checkpoint=str(cfg.checkpoint), task=cfg.task, discount=float(agent.discount), episodic=cfg.episodic,
-            mpc=cfg.mpc, action_mode='stochastic (evaluate_shift calls eval_mode=False)',
+            mpc=cfg.mpc,
+            action_mode=('eval_mode=True (MPC remains stochastic)' if cfg.evaluation.get('policy_eval_mode', False)
+                         else 'stochastic (evaluate_shift calls eval_mode=False)'),
             action_space_compatible=self.compatible, model_transition_unit='policy decision, up to 2 native steps',
             actual_score='captured original sampled terminal policy action and random Q-head pair',
             diagnostic_score='mean terminal policy action and mean of all decoded Q heads',

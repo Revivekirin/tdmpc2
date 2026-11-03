@@ -206,6 +206,14 @@ inspected seed, requested and executed commands are identical in both arms
 before this divergence. Thus the exposed initial-state comparison does not
 certify deterministic continuation. Later cross-arm planning differences
 cannot all be assigned to the shift, even in the abrupt condition.
+Subsequent checkpoint-backed seed-7 A/A checks, both from a fresh environment
+and after running seeds 1–6 first, found equal exposed observations, controller
+and simulator states, environment/policy RNG, MPC candidate hashes and selected
+actions through native step 9. The only reported pre-shift difference was the
+inactive delay-queue contents. These checks did **not** reproduce the earlier
+seed-7 discrepancy in the archived 50-episode run. They do not establish its
+cause or certify hidden simulator state. See `PAIRING_VALIDATION.md` and the
+two `results/pairing-validation-seed7*.json` files for scope and details.
 
 ## Identification and remaining limits
 

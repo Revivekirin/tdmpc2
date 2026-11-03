@@ -54,6 +54,8 @@ def normalize(cfg, overrides=()):
         raise ValueError('Frozen evaluation requires update_enabled=false.')
     data['adaptation_mode'] = data['adaptation']['mode']
     evaluation = data['evaluation']
+    if not isinstance(evaluation.get('policy_eval_mode', False), bool):
+        raise ValueError('evaluation.policy_eval_mode must be boolean.')
     if evaluation['mode'] == 'continual':
         raise NotImplementedError('continual is a schema only; continual evaluation is not implemented.')
     if evaluation['mode'] not in {'standard', 'paired'}:

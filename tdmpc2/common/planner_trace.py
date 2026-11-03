@@ -12,6 +12,10 @@ class PlannerTrace:
         self.iterations = []
         self.parts = None
         self.selection = None
+        self.encoded_z = None
+
+    def encoded(self, z):
+        self.encoded_z = array(z)
 
     def value(self, reward, terminal):
         self.parts = (array(reward).reshape(-1), array(terminal).reshape(-1))

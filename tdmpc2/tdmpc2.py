@@ -155,6 +155,9 @@ class TDMPC2(torch.nn.Module):
 		"""
 		# Sample policy trajectories
 		z = self.model.encode(obs, task)
+		trace = getattr(self, '_mechanism_trace', None)
+		if trace is not None:
+			trace.encoded(z)
 		if self.cfg.num_pi_trajs > 0:
 			pi_actions = torch.empty(self.cfg.horizon, self.cfg.num_pi_trajs, self.cfg.action_dim, device=self.device)
 			_z = z.repeat(self.cfg.num_pi_trajs, 1)

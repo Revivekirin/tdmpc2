@@ -119,12 +119,41 @@ python scripts/validate_pairing.py --seed 7 --warmup-seeds 1,2,3,4,5,6 \
   evaluation.episodes=1 seed=1 mpc=true analysis=frozen_mechanism
 ```
 
+## Server result: seed 7 after six warmup episodes
+
+`results/pairing-validation-seed7-warmup.json` confirms the listed warmup
+seeds `[1, 2, 3, 4, 5, 6]`. All variants reach native step 10. The nominal
+open-loop replay and disabled/enabled wrapper comparisons pass on the exposed
+prefix. Nominal versus abrupt matches in commanded/executed actions,
+observations, exposed simulator/controller state, environment RNG and policy
+RNG for all ten pre-shift native steps. Closed-loop nominal A/A matches in all
+five selected actions, policy RNG digests and first-iteration candidate
+hashes; analysis on/off also matches in all five actions. The first reported
+difference is only the expected delay-queue capacity/content after step 1.
+Hidden simulator state remains `UNVERIFIED`.
+
+Thus a single prior-episode warmup sequence does **not** reproduce the older
+seed-7 difference. Neither the queue nor the warmup order is a confirmed
+cause. The old ZIPs came from separate full benchmark runs and lack native
+post-step observations/controller/RNG traces. The new validator also omits
+benchmark logging and stops at the switch, so this result cannot prove that
+the full 50-episode paired run is deterministic. The next direct check is a
+new seven-episode paired benchmark with `evaluation.episodes=7` and the added
+`pairing-trace-*.json` files; inspect episode 6 in its `paired.json`. Repeating
+that run can distinguish a reproducible benchmark-path difference from an
+intermittent one without changing model or planner behavior.
+The archived source hashes match the current `tdmpc2.py`,
+`common/mechanism_analysis.py`, `envs/maniskill.py` and action-delay transform;
+`evaluate_shift.py` and shift-wrapper base changed to add pairing capture.
+The capture's read-only state queries themselves have not been proven neutral
+to any hidden simulator timing, so a new run cannot retrospectively certify
+the old run.
+
 ## Verification in this local workspace
 
 Seven synthetic contract tests in `tests/test_pairing_validation.py` pass,
 including an inert pre-switch delay-queue check and an injected first
 observation divergence. The local machine lacks the ManiSkill2, PyTorch,
-Hydra and checkpoint runtime used on the server. The fresh seed-7 checkpoint
-run above was performed on the server; the sequential warmup run has not yet
-been performed. Do not attribute the old divergence to a specific cause
-before that comparison.
+Hydra and checkpoint runtime used on the server. Both seed-7 checkpoint
+runs above were performed on the server; neither reproduces the old
+pre-shift action divergence. The cause is still unidentified.

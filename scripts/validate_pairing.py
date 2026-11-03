@@ -12,6 +12,7 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 from unittest.mock import patch
@@ -28,7 +29,7 @@ def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_e
     import torch
     from common.seed import set_seed
     from common.benchmark_metrics import initial_state
-    from common.pairing_validation import native_record, rng_digest
+    from common.pairing_validation import native_record, rng_digest, rng_hashes
     from envs import make_env
     from envs.maniskill import MANISKILL_TASKS, ManiSkillWrapper, legacy_gym
     from envs.wrappers.timeout import Timeout
@@ -64,7 +65,8 @@ def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_e
                 obs, reward, done, info = self.env.step(action)
                 if self.episode_step < int(cfg.schedule['switch_step']):
                     native = self.unwrapped
-                    record = dict(native_step=self.episode_step, parameter=0.,
+                    record = dict(native_step=self.episode_step, decision_step=self.episode_step // 2,
+                                  parameter=0.,
                                   commanded_action=encode_state(np.asarray(action).copy()),
                                   executed_action=encode_state(np.asarray(action).copy()),
                                   delay_queue_before=None, delay_queue_after=None,
@@ -110,7 +112,8 @@ def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_e
                 if analysis is not None:
                     analysis.before_action(step)
                 if warmup_action_sequences is None:
-                    previous_action = agent.act(previous_observation, t0=step == 0, task=None)
+                    previous_action = agent.act(previous_observation, t0=step == 0,
+                                                eval_mode=cfg.evaluation.get('policy_eval_mode', False), task=None)
                 else:
                     if step >= len(warmup_action_sequences[episode_id]):
                         raise RuntimeError(f'Warmup episode {episode_id} exceeded its supplied action sequence.')
@@ -141,23 +144,47 @@ def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_e
                            controller=encode_state(native.agent.controller.get_state()),
                            rng=encode_state({k: getattr(native, k).get_state() for k in ('_main_rng', '_episode_rng')}),
                            unavailable={})
+        initial_policy_rng = rng_hashes()
         done = False
         while shift.episode_step < switch and not done and (action_sequence is None or len(decisions) < len(action_sequence)):
             decision = len(decisions)
             if analysis is not None:
                 analysis.before_action(decision)
             rng_before = rng_digest()
-            action = (agent.act(observation, t0=decision == 0, task=None) if action_sequence is None
+            rng_components_before = rng_hashes()
+            warm_start_before = agent._prev_mean.detach().cpu().numpy().tolist()
+            action = (agent.act(observation, t0=decision == 0,
+                                eval_mode=cfg.evaluation.get('policy_eval_mode', False), task=None)
+                      if action_sequence is None
                       else torch.as_tensor(action_sequence[decision]['action']))
             rng_after = rng_digest()
+            rng_components_after = rng_hashes()
+            warm_start_after = agent._prev_mean.detach().cpu().numpy().tolist()
             planner = getattr(agent, '_mechanism_trace', None)
             candidate_hash = None
+            planner_details = None
             if planner is not None and planner.iterations:
                 candidate_hash = hashlib.sha256(np.ascontiguousarray(planner.iterations[0]['actions']).tobytes()).hexdigest()
+                encoded = getattr(planner, 'encoded_z', None)
+                planner_details = dict(encoded=encoded.tolist() if encoded is not None else None,
+                                       iterations=[dict(actions=row['actions'].tolist(),
+                                                        reward=row['predicted_reward_sum'].tolist(),
+                                                        terminal_q=row['terminal_q_contribution'].tolist(),
+                                                        score=row['actual_planner_score'].tolist(),
+                                                        elite_ids=row['elite_ids'].tolist())
+                                                   for row in planner.iterations],
+                                       selection=(dict(selected_candidate_id=planner.selection['selected_candidate_id'],
+                                                       selected_first_action=planner.selection['selected_first_action'].tolist())
+                                                  if planner.selection is not None else None))
             next_observation, reward, done, info = env.step(action)
             decisions.append(dict(decision=decision, action=action.detach().cpu().numpy().tolist(),
                                   rng_before=rng_before, rng_after=rng_after,
-                                  first_iteration_candidates_sha256=candidate_hash))
+                                  rng_components_before=rng_components_before,
+                                  rng_components_after=rng_components_after,
+                                  planner_warm_start_before=warm_start_before,
+                                  planner_warm_start_after=warm_start_after,
+                                  first_iteration_candidates_sha256=candidate_hash,
+                                  planner=planner_details))
             events = shift.drain_events() if wrapper_enabled else []
             if analysis is not None:
                 analysis.observe(observation, action, next_observation, reward, done, info, events)
@@ -165,7 +192,8 @@ def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_e
         if analysis is not None:
             analysis.end_episode(info['success'] if decisions else False)
             analysis.finish()
-        return dict(initial=initial, native=trace, decisions=decisions, warmup_actions=warmup_actions,
+        return dict(initial=initial, initial_policy_rng=initial_policy_rng,
+                    native=trace, decisions=decisions, warmup_actions=warmup_actions,
                     reached_switch=shift.episode_step >= switch, ended=bool(done))
     finally:
         env.close()
@@ -190,6 +218,8 @@ def main():
     parser.add_argument('--atol', type=float, default=1e-6)
     parser.add_argument('--warmup-seeds', default='',
                         help='Comma-separated prior episode seeds, e.g. 1,2,3,4,5,6 for target seed 7.')
+    parser.add_argument('--deterministic-algorithms', action='store_true',
+                        help='Diagnostic only; surface unsupported CUDA operations as errors.')
     args, overrides = parser.parse_known_args()
     if args.atol < 0:
         parser.error('--atol must be nonnegative')
@@ -204,6 +234,11 @@ def main():
     from common.parser import parse_cfg
     from common.benchmark_metrics import compare_initial
     from common.pairing_validation import compare_prefix
+    from common.pairing_root_cause import compare_runs, divergence_context
+    if args.deterministic_algorithms:
+        torch.use_deterministic_algorithms(True)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     if not torch.cuda.is_available():
         raise RuntimeError('CUDA and the checkpoint are required for this validation.')
     with hydra.initialize_config_dir(config_dir=str(ROOT / 'tdmpc2'), version_base=None):
@@ -232,8 +267,29 @@ def main():
         abrupt = run_prefix(cfg, args.seed, True, root / 'abrupt', warmup_seeds=warmup_seeds)
         no_analysis = run_prefix(nominal, args.seed, False, root / 'no_analysis', warmup_seeds=warmup_seeds)
     initial = compare_initial(aa1['initial'], abrupt['initial'], args.atol)
-    report = dict(schema_version=1, seed=args.seed, warmup_seeds=warmup_seeds, checkpoint=cfg.checkpoint,
+    comparisons = {
+        'nominal_nominal_closed_loop': (aa1, aa2),
+        'nominal_nominal_open_loop': (aa1, replay),
+        'nominal_abrupt': (aa1, abrupt),
+        'analysis_on_off': (aa1, no_analysis),
+        'disabled_enabled_nominal_wrapper': (disabled, replay),
+    }
+    first_divergence = {name: compare_runs(left, right, args.atol, cfg.schedule['switch_step'])
+                        for name, (left, right) in comparisons.items()}
+    source_files = ('tdmpc2/evaluate_shift.py', 'tdmpc2/tdmpc2.py',
+                    'tdmpc2/common/world_model.py', 'tdmpc2/common/mechanism_analysis.py',
+                    'tdmpc2/envs/wrappers/dynamics_shift/action_shift.py',
+                    'tdmpc2/envs/wrappers/dynamics_shift/schedule.py',
+                    'tdmpc2/envs/maniskill.py')
+    revision = subprocess.run(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'],
+                              capture_output=True, text=True, check=False).stdout.strip()
+    report = dict(schema_version=2, seed=args.seed, warmup_seeds=warmup_seeds, checkpoint=cfg.checkpoint,
                   task=cfg.task, switch_step=cfg.schedule['switch_step'], atol=args.atol,
+                  code_revision=revision, source_sha256={name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
+                                                        for name in source_files},
+                  torch_version=torch.__version__, cuda_version=torch.version.cuda,
+                  policy_eval_mode=bool(cfg.evaluation.get('policy_eval_mode', False)),
+                  deterministic_algorithms=args.deterministic_algorithms,
                   nominal_nominal_open_loop=compare_prefix(aa1['native'], replay['native'], cfg.schedule['switch_step'], args.atol, compare_policy_rng=False),
                   disabled_vs_enabled_nominal_wrapper=compare_prefix(disabled['native'], replay['native'], cfg.schedule['switch_step'], args.atol),
                   nominal_enabled_nominal_wrapper=compare_prefix(aa1['native'], abrupt['native'], cfg.schedule['switch_step'], args.atol),
@@ -243,6 +299,9 @@ def main():
                                            disabled_enabled=compare_initial(disabled['initial'], replay['initial'], args.atol),
                                            nominal_abrupt=initial),
                   first_divergence_evidence=compare_prefix(aa1['native'], abrupt['native'], cfg.schedule['switch_step'], args.atol),
+                  first_divergence=first_divergence,
+                  first_divergence_context={name: divergence_context(left, right, first_divergence[name])
+                                            for name, (left, right) in comparisons.items()},
                   reached_switch={name: run['reached_switch'] for name, run in
                                   (('nominal_a', aa1), ('nominal_b', aa2), ('nominal_replay', replay), ('disabled_wrapper', disabled), ('abrupt', abrupt), ('analysis_off', no_analysis))},
                   simulator_full_state='UNVERIFIED',

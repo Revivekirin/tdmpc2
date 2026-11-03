@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "historical_frozen_benchmark": {
+    "source": "mechanism-full-summaries.zip",
+    "run_count": 11,
+    "all_complete": true,
+    "all_checkpoint_unchanged": true,
+    "episode_counts": [
+      50,
+      50,
+      50,
+      50,
+      50,
+      50,
+      50,
+      50,
+      50,
+      50,
+      50
+    ],
+    "source_revisions": [
+      "eafa48890b3ef02df5b257668196e79136a65fd5"
+    ]
+  },
+  "current_local_regression": {
+    "synthetic_pairing_tests": {
+      "passed": 9,
+      "failed": 0
+    },
+    "dynamics_shift_tests": {
+      "passed": 6,
+      "failed": 0
+    },
+    "checkpoint_backed_matrix": "NOT_RUN_LOCAL_CUDA_RUNTIME_UNAVAILABLE",
+    "benchmark_v2_tests": "NOT_RUN_LOCAL_OMEGACONF_MISSING",
+    "new_50_episode_benchmark": "NOT_RUN_OLD_RESULTS_UNCHANGED"
+  },
+  "simulator_full_state": "UNVERIFIED"
+}
