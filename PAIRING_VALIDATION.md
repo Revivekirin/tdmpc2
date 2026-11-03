@@ -89,11 +89,42 @@ interpreted as a full ten-step check. For the actual paired evaluation, rerun
 the same suite command on the server after updating the code; prior ZIPs cannot
 be retroactively populated with the new native state and RNG traces.
 
+## Server result: fresh seed 7
+
+`results/pairing-validation-seed7.json` uses a fresh environment for seed 7.
+All six variants reach native step 10. Nominal A/A open-loop and the
+disabled/enabled wrapper comparison pass on the exposed native prefix.
+Nominal versus abrupt also matches in commanded/executed actions,
+observations, exposed simulator/controller state, environment RNG and policy
+RNG through native step 9. The first structural difference is the delay queue
+after native step 1; it does not change behavior in this prefix. Two
+closed-loop nominal runs match in all five actions, RNG digests and first
+iteration candidate hashes. Analysis on/off matches in all five actions.
+All initial exposed components pass; hidden simulator state and exact pairing
+remain `UNVERIFIED`.
+
+This **does not reproduce** the previous seed-7 discrepancy. In the original
+50-episode paired evaluation, seed 7 was episode index 6, after seeds 1–6 had
+run on the same environment and agent in each arm. The fresh run rules out a
+repeatable first-episode seed-7 discrepancy under these settings, but does
+not establish the earlier cause. To compare the same sequential context,
+use the updated validator with complete warmup episodes:
+
+```bash
+python scripts/validate_pairing.py --seed 7 --warmup-seeds 1,2,3,4,5,6 \
+  --out results/pairing-validation-seed7-warmup.json \
+  task=pick-cube checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt \
+  episodic=false compile=false model_size=5 dynamics_shift=action_delay \
+  schedule=abrupt dynamics_shift.parameter.shifted=2 evaluation=paired \
+  evaluation.episodes=1 seed=1 mpc=true analysis=frozen_mechanism
+```
+
 ## Verification in this local workspace
 
 Seven synthetic contract tests in `tests/test_pairing_validation.py` pass,
 including an inert pre-switch delay-queue check and an injected first
 observation divergence. The local machine lacks the ManiSkill2, PyTorch,
-Hydra and checkpoint runtime used on the server, so the checkpoint-backed
-checkpoint-backed validation has **not** been executed here. The corresponding result
-JSON must be generated on that server before attributing the cause.
+Hydra and checkpoint runtime used on the server. The fresh seed-7 checkpoint
+run above was performed on the server; the sequential warmup run has not yet
+been performed. Do not attribute the old divergence to a specific cause
+before that comparison.

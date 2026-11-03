@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "seed": 7,
+  "checkpoint": "/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+  "task": "pick-cube",
+  "switch_step": 10,
+  "atol": 1e-06,
+  "nominal_nominal_open_loop": {
+    "pre_shift_equivalence": "PASS_OBSERVED_PREFIX",
+    "first_divergence_step": null,
+    "first_divergence_fields": [],
+    "first_behavioral_divergence_step": null,
+    "pairing_validity": "UNVERIFIED",
+    "compared_native_steps": 10,
+    "simulator_full_state": "UNVERIFIED"
+  },
+  "disabled_vs_enabled_nominal_wrapper": {
+    "pre_shift_equivalence": "PASS_OBSERVED_PREFIX",
+    "first_divergence_step": 0,
+    "first_divergence_fields": [
+      "delay_queue_before",
+      "delay_queue_after"
+    ],
+    "first_behavioral_divergence_step": null,
+    "pairing_validity": "UNVERIFIED",
+    "compared_native_steps": 10,
+    "simulator_full_state": "UNVERIFIED"
+  },
+  "nominal_enabled_nominal_wrapper": {
+    "pre_shift_equivalence": "PASS_OBSERVED_PREFIX",
+    "first_divergence_step": 1,
+    "first_divergence_fields": [
+      "delay_queue_after"
+    ],
+    "first_behavioral_divergence_step": null,
+    "pairing_validity": "UNVERIFIED",
+    "compared_native_steps": 10,
+    "simulator_full_state": "UNVERIFIED"
+  },
+  "closed_loop_mpc_rng": {
+    "status": "PASS_OBSERVED_PREFIX",
+    "first_decision": null,
+    "fields": [],
+    "compared_decisions": 5
+  },
+  "analysis_on_off_action": {
+    "status": "PASS_OBSERVED_PREFIX",
+    "first_decision": null,
+    "fields": [],
+    "compared_decisions": 5
+  },
+  "initial_comparisons": {
+    "nominal_nominal": {
+      "observation": "PASS",
+      "simulator": "PASS",
+      "controller": "PASS",
+      "rng": "PASS",
+      "full_state": "UNVERIFIED",
+      "scope": "Compared exposed state only; simulator internals/contact caches and all RNG sources are not certified."
+    },
+    "disabled_enabled": {
+      "observation": "PASS",
+      "simulator": "PASS",
+      "controller": "PASS",
+      "rng": "PASS",
+      "full_state": "UNVERIFIED",
+      "scope": "Compared exposed state only; simulator internals/contact caches and all RNG sources are not certified."
+    },
+    "nominal_abrupt": {
+      "observation": "PASS",
+      "simulator": "PASS",
+      "controller": "PASS",
+      "rng": "PASS",
+      "full_state": "UNVERIFIED",
+      "scope": "Compared exposed state only; simulator internals/contact caches and all RNG sources are not certified."
+    }
+  },
+  "first_divergence_evidence": {
+    "pre_shift_equivalence": "PASS_OBSERVED_PREFIX",
+    "first_divergence_step": 1,
+    "first_divergence_fields": [
+      "delay_queue_after"
+    ],
+    "first_behavioral_divergence_step": null,
+    "pairing_validity": "UNVERIFIED",
+    "compared_native_steps": 10,
+    "simulator_full_state": "UNVERIFIED"
+  },
+  "reached_switch": {
+    "nominal_a": true,
+    "nominal_b": true,
+    "nominal_replay": true,
+    "disabled_wrapper": true,
+    "abrupt": true,
+    "analysis_off": true
+  },
+  "simulator_full_state": "UNVERIFIED",
+  "limitation": "Exposed state and RNG only; hidden SAPIEN/PhysX state is not certified."
+}

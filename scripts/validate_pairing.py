@@ -20,7 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tdmpc2'))
 
 
-def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_enabled=True):
+def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_enabled=True,
+               warmup_seeds=(), warmup_action_sequences=None):
     cfg = deepcopy(cfg)  # TDMPC2.__init__ may adjust planner iteration count.
     cfg.analysis['enabled'] = analysis_enabled
     import numpy as np
@@ -87,18 +88,48 @@ def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_e
     agent.load(cfg.checkpoint)
     analysis = None
     decisions = []
+    warmup_actions = []
     switch = int(cfg.schedule['switch_step'])
     def observe_native(obs, record, queue_before):
         if record['episode_native_step'] < switch:
             trace.append(native_record(shift, obs, record, queue_before))
-    if wrapper_enabled:
-        shift.pairing_observer = observe_native
     try:
         if analysis_enabled:
             out.mkdir(parents=True, exist_ok=True)
             analysis = MechanismAnalysis(cfg, agent, out, shift.action_space)
             shift.analysis_capture_history = True
-            analysis.begin_episode(0, seed)
+        for episode_id, previous_seed in enumerate(warmup_seeds):
+            if analysis is not None:
+                analysis.begin_episode(episode_id, previous_seed)
+            set_seed(previous_seed)
+            previous_observation = env.reset(seed=previous_seed)
+            previous_done = False
+            previous_actions = []
+            while not previous_done:
+                step = len(previous_actions)
+                if analysis is not None:
+                    analysis.before_action(step)
+                if warmup_action_sequences is None:
+                    previous_action = agent.act(previous_observation, t0=step == 0, task=None)
+                else:
+                    if step >= len(warmup_action_sequences[episode_id]):
+                        raise RuntimeError(f'Warmup episode {episode_id} exceeded its supplied action sequence.')
+                    previous_action = torch.as_tensor(warmup_action_sequences[episode_id][step])
+                following_observation, reward, previous_done, info = env.step(previous_action)
+                previous_actions.append(previous_action.detach().cpu().numpy().tolist())
+                events = shift.drain_events() if wrapper_enabled else []
+                if analysis is not None:
+                    analysis.observe(previous_observation, previous_action, following_observation,
+                                     reward, previous_done, info, events)
+                previous_observation = following_observation
+            if analysis is not None:
+                analysis.end_episode(info['success'])
+            warmup_actions.append(previous_actions)
+        trace.clear()
+        if wrapper_enabled:
+            shift.pairing_observer = observe_native
+        if analysis is not None:
+            analysis.begin_episode(len(warmup_seeds), seed)
         set_seed(seed)
         observation = env.reset(seed=seed)
         if wrapper_enabled:
@@ -127,13 +158,14 @@ def run_prefix(cfg, seed, analysis_enabled, out, action_sequence=None, wrapper_e
             decisions.append(dict(decision=decision, action=action.detach().cpu().numpy().tolist(),
                                   rng_before=rng_before, rng_after=rng_after,
                                   first_iteration_candidates_sha256=candidate_hash))
+            events = shift.drain_events() if wrapper_enabled else []
             if analysis is not None:
-                analysis.observe(observation, action, next_observation, reward, done, info, shift.drain_events())
+                analysis.observe(observation, action, next_observation, reward, done, info, events)
             observation = next_observation
         if analysis is not None:
             analysis.end_episode(info['success'] if decisions else False)
             analysis.finish()
-        return dict(initial=initial, native=trace, decisions=decisions,
+        return dict(initial=initial, native=trace, decisions=decisions, warmup_actions=warmup_actions,
                     reached_switch=shift.episode_step >= switch, ended=bool(done))
     finally:
         env.close()
@@ -156,9 +188,14 @@ def main():
     parser.add_argument('--seed', type=int, default=7)
     parser.add_argument('--out', type=Path, default=Path('results/pairing-validation.json'))
     parser.add_argument('--atol', type=float, default=1e-6)
+    parser.add_argument('--warmup-seeds', default='',
+                        help='Comma-separated prior episode seeds, e.g. 1,2,3,4,5,6 for target seed 7.')
     args, overrides = parser.parse_known_args()
     if args.atol < 0:
         parser.error('--atol must be nonnegative')
+    warmup_seeds = [int(value) for value in args.warmup_seeds.split(',') if value]
+    if args.seed in warmup_seeds or len(set(warmup_seeds)) != len(warmup_seeds):
+        parser.error('Warmup seeds must be distinct and exclude --seed.')
     import hydra
     import torch
     from omegaconf import OmegaConf
@@ -185,14 +222,17 @@ def main():
     # schedule has max_delay=0; abrupt keeps the inert queue until switch_step.
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        aa1 = run_prefix(nominal, args.seed, True, root / 'aa1')
-        aa2 = run_prefix(nominal, args.seed, True, root / 'aa2')
-        replay = run_prefix(nominal, args.seed, False, root / 'replay', aa1['decisions'])
-        disabled = run_prefix(nominal, args.seed, False, root / 'disabled', aa1['decisions'], wrapper_enabled=False)
-        abrupt = run_prefix(cfg, args.seed, True, root / 'abrupt')
-        no_analysis = run_prefix(nominal, args.seed, False, root / 'no_analysis')
+        aa1 = run_prefix(nominal, args.seed, True, root / 'aa1', warmup_seeds=warmup_seeds)
+        aa2 = run_prefix(nominal, args.seed, True, root / 'aa2', warmup_seeds=warmup_seeds)
+        replay = run_prefix(nominal, args.seed, False, root / 'replay', aa1['decisions'],
+                            warmup_seeds=warmup_seeds, warmup_action_sequences=aa1['warmup_actions'])
+        disabled = run_prefix(nominal, args.seed, False, root / 'disabled', aa1['decisions'],
+                              wrapper_enabled=False, warmup_seeds=warmup_seeds,
+                              warmup_action_sequences=aa1['warmup_actions'])
+        abrupt = run_prefix(cfg, args.seed, True, root / 'abrupt', warmup_seeds=warmup_seeds)
+        no_analysis = run_prefix(nominal, args.seed, False, root / 'no_analysis', warmup_seeds=warmup_seeds)
     initial = compare_initial(aa1['initial'], abrupt['initial'], args.atol)
-    report = dict(schema_version=1, seed=args.seed, checkpoint=cfg.checkpoint,
+    report = dict(schema_version=1, seed=args.seed, warmup_seeds=warmup_seeds, checkpoint=cfg.checkpoint,
                   task=cfg.task, switch_step=cfg.schedule['switch_step'], atol=args.atol,
                   nominal_nominal_open_loop=compare_prefix(aa1['native'], replay['native'], cfg.schedule['switch_step'], args.atol, compare_policy_rng=False),
                   disabled_vs_enabled_nominal_wrapper=compare_prefix(disabled['native'], replay['native'], cfg.schedule['switch_step'], args.atol),
