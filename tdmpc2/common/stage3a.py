@@ -61,7 +61,10 @@ class EpisodeAdapter:
         self.last_metrics = dict(consistency_loss=None, predictor_gradient_norm=None, predictor_update_norm=None)
 
     def fixed_state(self):
-        return {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()
+        # TensorDict-backed Q ensembles also serialize metadata (e.g. torch.Size).
+        # Preserve it so invariance checks cover metadata as well as parameters.
+        return {k: v.detach().cpu().clone() if isinstance(v, torch.Tensor) else deepcopy(v)
+                for k, v in self.model.state_dict().items()
                 if not k.startswith('_dynamics.')}
 
     def begin_episode(self):

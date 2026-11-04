@@ -105,6 +105,35 @@ class Stage3ATest(unittest.TestCase):
         predicted = self.model.next(self.model.encode(obs, None).detach(), action, None)
         self.assertTrue(torch.equal(self.adapter.loss(batch), (predicted-target).square().mean()))
 
+    def test_non_tensor_state_metadata(self):
+        class MetadataModel(Model):
+            def __init__(self):
+                super().__init__()
+                self.metadata = {'batch_size': torch.Size([5]), 'device': None,
+                                 'names': [None]}
+
+            def state_dict(self, *args, **kwargs):
+                state = super().state_dict(*args, **kwargs)
+                state['_Qs.params.__batch_size'] = self.metadata['batch_size']
+                state['_Qs.params.metadata'] = self.metadata
+                return state
+
+        for mode in ('frozen', 'dynamics_only'):
+            with self.subTest(mode=mode):
+                model = MetadataModel()
+                adapter = EpisodeAdapter(model, settings(mode), 20., 20.)
+                adapter.begin_episode()
+                for transition in data():
+                    adapter.observe(*transition, 2)
+                adapter.end_episode()
+                adapter.assert_fixed()
+                with adapter.held_out():
+                    adapter.loss(data())
+                # A snapshot must not alias mutable non-Tensor metadata.
+                model.metadata['names'][0] = 'changed'
+                with self.assertRaises(AssertionError):
+                    adapter.assert_fixed()
+
     def test_reject_invalid_protocols(self):
         for key, value in [('mode', 'joint_rl'), ('mode', 'dynamics_value'),
                            ('consistency_steps', 3), ('update_granularity', 'step'),
