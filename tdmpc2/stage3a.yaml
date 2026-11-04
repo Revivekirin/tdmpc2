@@ -20,3 +20,12 @@ stage3a:
   adaptation_seeds: [1000,1001,1002,1003,1004,1005,1006,1007,1008,1009]
   evaluation_seeds: [2000,2001,2002,2003,2004]
   output: stage3a-results
+  # Optional matched-budget protocol; original episode protocol remains the default.
+  native_budgets: []
+  adaptation_seed_start: null
+  seed_set: 0
+  seed_set_stride: 10000
+  fixed_data_path: null
+  fixed_data_collect: false
+  fixed_data_seeds: [3000,3001,3002,3003,3004]
+  planner_trace: false

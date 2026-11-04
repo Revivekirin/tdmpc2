@@ -11,11 +11,24 @@ from hydra import compose, initialize_config_dir
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_stage3a import Model, settings, data
 from common.stage3a import EpisodeAdapter, equal_state
-from adapt_shift import evaluate
+from adapt_shift import evaluate, mse_statistics
 from common.benchmark_config import normalize
 
 
 class Stage3ARunnerTest(unittest.TestCase):
+    def test_mse_statistics(self):
+        result = mse_statistics([0., 2., 4.])
+        self.assertEqual(result['count'], 3)
+        self.assertEqual(result['mean'], 2.)
+        self.assertAlmostEqual(result['variance'], 8 / 3)
+        self.assertAlmostEqual(result['std'], np.sqrt(8 / 3))
+        self.assertAlmostEqual(result['p95'], 3.8)
+        self.assertEqual(result['ddof'], 0)
+        self.assertEqual(mse_statistics([2.])['std'], 0.)
+        for values in ([], [float('nan')], [float('inf')]):
+            with self.assertRaises(ValueError):
+                mse_statistics(values)
+
     def test_hydra_methods(self):
         with initialize_config_dir(config_dir=str(Path(__file__).resolve().parents[1] / 'tdmpc2'), version_base=None):
             for mode in ['frozen', 'dynamics_only']:
@@ -50,10 +63,11 @@ class Stage3ARunnerTest(unittest.TestCase):
             def reset(self, seed):
                 self.seeds.append(seed)
                 self.t = 0
+                self.length = 2 if seed == 20 else 3
                 return torch.zeros(2)
             def step(self, action):
                 self.t += 1
-                return torch.ones(2), 1., self.t == 3, dict(success=1, shift_native_steps=[{}, {}])
+                return torch.ones(2), 1., self.t == self.length, dict(success=1, shift_native_steps=[{}, {}])
             def close(self):
                 self.closed = True
         def factory(cfg):
@@ -71,11 +85,29 @@ class Stage3ARunnerTest(unittest.TestCase):
         self.assertEqual(adapter.transitions, 16)
         self.assertEqual(adapter.native_steps, 32)
         for condition in ['shifted', 'nominal']:
-            self.assertEqual(result[condition]['native_steps'], 12)
-            self.assertEqual(result[condition]['policy_decisions'], 6)
-            self.assertEqual(result[condition]['planner_q_input_moments']['count'], 12)
+            self.assertEqual(result[condition]['native_steps'], 10)
+            self.assertEqual(result[condition]['policy_decisions'], 5)
+            self.assertEqual(result[condition]['planner_q_input_moments']['count'], 10)
+            stats = result[condition]['held_out_latent_prediction_stats']
+            per_episode = [e['latent_prediction_mse'] for e in result[condition]['episodes']]
+            self.assertEqual([e['count'] for e in per_episode], [2, 3])
+            self.assertEqual(stats['transition']['count'], 5)
+            self.assertEqual(stats['episode_means']['count'], 2)
+            means = [e['mean'] for e in per_episode]
+            self.assertAlmostEqual(stats['episode_means']['mean'], np.mean(means))
+            self.assertAlmostEqual(stats['episode_means']['variance'], np.var(means))
+            self.assertAlmostEqual(stats['transition']['mean'], np.average(means, weights=[2, 3]))
+            self.assertEqual(result[condition]['held_out_latent_prediction_error'], stats['transition']['mean'])
         self.assertTrue(all(e.closed and e.seeds == [20,21] for e in environments))
         self.assertEqual(len(model._Qs._forward_pre_hooks), 0)
+        # Budget checkpoints may occur in an active episode; evaluation must
+        # leave it active without triggering an update or changing replay.
+        adapter.begin_episode()
+        cfg.stage3a['native_budgets'] = [5]
+        evaluate(agent, adapter, cfg, factory, deepcopy(model._dynamics))
+        self.assertTrue(adapter.in_episode)
+        self.assertEqual(adapter.transitions, 16)
+        self.assertTrue(equal_state(before, adapter.optimizer.state_dict()))
 
 
 if __name__ == '__main__':

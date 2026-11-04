@@ -1,0 +1,14 @@
+defaults:
+  - stage3a
+  - _self_
+stage3a:
+  native_budgets: [100,200,400,800,1600]
+  episodes: 2000  # safety limit; stop at final native budget, not this episode count
+  adaptation_seed_start: 1000
+  batch_size: 16
+  warmup: 16
+  evaluation_seeds: [4000,4001,4002,4003,4004,4005,4006,4007,4008,4009]
+  fixed_data_seeds: [5000,5001,5002,5003,5004,5005,5006,5007,5008,5009]
+  fixed_data_path: stage3a-matched-data/set-${stage3a.seed_set}.pt
+  planner_trace: true
+  output: stage3a-matched-delay1

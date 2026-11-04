@@ -7,6 +7,31 @@ import torch
 import torch.nn.functional as F
 
 
+class NativeBudgetReached(Exception):
+    """Stop after the final native step without fabricating a terminal transition."""
+
+
+class NativeBudgetMonitor:
+    """Reuse the native wrapper observer; checkpoints precede episode-end updates."""
+    def __init__(self, budgets, checkpoint, record=None):
+        if not budgets or any(type(b) is not int or b <= 0 for b in budgets) or budgets != sorted(set(budgets)):
+            raise ValueError('Native budgets must be strictly increasing positive integers.')
+        self.budgets, self.checkpoint, self.record = budgets, checkpoint, record
+        self.native_steps = self.decisions_started = 0
+        self.index = 0
+
+    def __call__(self, obs, record, queue_before):
+        self.native_steps += 1
+        self.decisions_started = int(record['policy_decision_step']) + 1
+        if self.record is not None:
+            self.record(record)
+        if self.native_steps == self.budgets[self.index]:
+            self.checkpoint(self.native_steps)
+            self.index += 1
+            if self.index == len(self.budgets):
+                raise NativeBudgetReached()
+
+
 def equal_state(a, b):
     if isinstance(a, torch.Tensor):
         return isinstance(b, torch.Tensor) and torch.equal(a, b)
@@ -37,6 +62,14 @@ def validate(settings):
         raise ValueError('Provide unique adaptation seeds for every episode and nonempty unique evaluation seeds.')
     if any(type(s) is not int or not 0 <= s < 2**32 for s in a + e) or set(a) & set(e):
         raise ValueError('Adaptation/evaluation seeds must be valid, disjoint seed sets.')
+    if settings.get('native_budgets'):
+        NativeBudgetMonitor(settings['native_budgets'], lambda _: None)
+        if not settings.get('fixed_data_path'):
+            raise ValueError('Matched-budget runs require a shared fixed_data_path.')
+    fixed = settings.get('fixed_data_seeds', [])
+    if (len(fixed) != len(set(fixed)) or set(fixed) & (set(a) | set(e))
+            or any(type(s) is not int or not 0 <= s < 2**32 for s in fixed)):
+        raise ValueError('Fixed-data seeds must be unique and separate from adaptation/evaluation seeds.')
 
 
 class EpisodeAdapter:
@@ -125,14 +158,15 @@ class EpisodeAdapter:
             raise AssertionError('A frozen encoder/reward/Q/policy/target parameter changed.')
 
     @contextmanager
-    def held_out(self):
-        if self.evaluating or self.in_episode:
+    def held_out(self, allow_in_episode=False):
+        if self.evaluating or (self.in_episode and not allow_in_episode):
             raise RuntimeError('Evaluation requires an episode boundary.')
         model = deepcopy(self.model.state_dict())
         optimizer = deepcopy(self.optimizer.state_dict()) if self.optimizer else None
-        replay = list(self.replay)
+        replay = deepcopy(list(self.replay))
         counters = (self.episodes, self.transitions, self.native_steps, self.gradient_steps)
         rng = self.rng.getstate()
+        in_episode = self.in_episode
         self.evaluating = True
         try:
             with torch.no_grad():
@@ -144,6 +178,7 @@ class EpisodeAdapter:
             assert equal_state(replay, list(self.replay)), 'Evaluation mutated replay'
             assert counters == (self.episodes, self.transitions, self.native_steps, self.gradient_steps)
             assert rng == self.rng.getstate()
+            assert self.in_episode == in_episode
             self.assert_fixed()
 
     def metrics(self):
