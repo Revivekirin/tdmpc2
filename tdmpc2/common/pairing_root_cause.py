@@ -66,7 +66,8 @@ def compare_runs(reference, candidate, atol, switch_step):
             b_by_decision.setdefault(row.get('decision_step', row['native_step'] // 2), []).append(row)
     for decision, (left, right) in enumerate(zip(reference['decisions'], candidate['decisions'])):
         add('planner_warm_start_before', left.get('planner_warm_start_before'),
-            right.get('planner_warm_start_before'), decision)
+            right.get('planner_warm_start_before'), decision,
+            expected_structural=(decision == 0))
         add('policy_rng_before', left.get('rng_components_before'), right.get('rng_components_before'), decision)
         lp, rp = left.get('planner'), right.get('planner')
         if lp is not None and rp is not None:

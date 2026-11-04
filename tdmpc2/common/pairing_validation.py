@@ -32,7 +32,7 @@ def native_record(env, observation, shift_record, queue_before):
     from envs.wrappers.dynamics_shift.logging import encode_state
     state = initial_state(env, observation)
     return dict(native_step=shift_record['episode_native_step'],
-                decision_step=shift_record['policy_decision_step'],
+                decision_step=shift_record['episode_decision_step'],
                 parameter=encode_state(shift_record['applied_parameter']),
                 commanded_action=encode_state(shift_record['commanded_action']),
                 executed_action=encode_state(shift_record['executed_action']),

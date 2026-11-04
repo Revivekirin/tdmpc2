@@ -1,0 +1,22 @@
+defaults:
+  - config
+  - _self_
+compile: false
+save_video: false
+stage3a:
+  mode: dynamics_only
+  update_granularity: episode
+  consistency_steps: 1
+  action_input: commanded
+  replay_source: fresh_shifted
+  capacity: 100000
+  sampling: uniform_without_replacement
+  batch_size: 256
+  warmup: 1000
+  updates_per_episode: 50
+  lr: 0.00003
+  episodes: 10
+  eval_every: 2
+  adaptation_seeds: [1000,1001,1002,1003,1004,1005,1006,1007,1008,1009]
+  evaluation_seeds: [2000,2001,2002,2003,2004]
+  output: stage3a-results

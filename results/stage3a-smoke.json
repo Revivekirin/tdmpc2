@@ -1,0 +1,56 @@
+{
+  "stage": "3A",
+  "date": "2026-11-03",
+  "stage3a_tests_passed": 9,
+  "existing_benchmark_tests_passed": 8,
+  "real_environment_run": "NOT_RUN",
+  "limitations": [
+    "CUDA unavailable on this macOS host",
+    "No pretrained checkpoint found in repository"
+  ],
+  "synthetic_adaptation": {
+    "test": "synthetic CPU adaptation, not TD-MPC2 environment evaluation",
+    "initial_mse": 0.03699805215001106,
+    "checkpoints": [
+      {
+        "adaptation_episodes": 1,
+        "adaptation_transitions": 16,
+        "adaptation_native_steps": 32,
+        "adaptation_policy_decisions": 16,
+        "gradient_update_steps": 10,
+        "replay_size": 16,
+        "reward_q_parameter_invariance": true,
+        "consistency_loss": 0.013490845449268818,
+        "predictor_gradient_norm": 1.1310876607894897,
+        "predictor_update_norm": 0.0578991062939167,
+        "synthetic_heldout_mse": 0.010770821943879128
+      },
+      {
+        "adaptation_episodes": 2,
+        "adaptation_transitions": 32,
+        "adaptation_native_steps": 64,
+        "adaptation_policy_decisions": 32,
+        "gradient_update_steps": 20,
+        "replay_size": 32,
+        "reward_q_parameter_invariance": true,
+        "consistency_loss": 0.010642649605870247,
+        "predictor_gradient_norm": 1.011199712753296,
+        "predictor_update_norm": 0.025878285989165306,
+        "synthetic_heldout_mse": 0.00676214974373579
+      },
+      {
+        "adaptation_episodes": 3,
+        "adaptation_transitions": 48,
+        "adaptation_native_steps": 96,
+        "adaptation_policy_decisions": 48,
+        "gradient_update_steps": 30,
+        "replay_size": 48,
+        "reward_q_parameter_invariance": true,
+        "consistency_loss": 0.00743024330586195,
+        "predictor_gradient_norm": 0.5297336578369141,
+        "predictor_update_norm": 0.020178858190774918,
+        "synthetic_heldout_mse": 0.007334677968174219
+      }
+    ]
+  }
+}

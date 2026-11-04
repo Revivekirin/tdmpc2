@@ -54,6 +54,18 @@ class PairingValidationTests(unittest.TestCase):
         self.assertIsNone(result['first_substantive_exact_divergence'])
         self.assertIsNone(result['first_tolerance_divergence'])
 
+    def test_first_decision_warm_start_is_inert(self):
+        a = dict(initial=dict(observation=[0.], simulator=[0.], controller=[0.], rng='same'),
+                 initial_policy_rng='same', decisions=[dict(action=[0.], rng_components_before='same',
+                 rng_components_after='same', planner_warm_start_before=[1.], planner_warm_start_after=[0.],
+                 planner=None)], native=[dict(row(0), decision_step=0)])
+        b = deepcopy(a)
+        b['decisions'][0]['planner_warm_start_before'] = [2.]
+        result = compare_runs(a, b, 1e-6, 10)
+        self.assertEqual(result['first_exact_divergence']['boundary'], 'planner_warm_start_before')
+        self.assertTrue(result['first_exact_divergence']['expected_structural'])
+        self.assertIsNone(result['first_tolerance_divergence'])
+
     def test_first_observed_divergence(self):
         reference = [row(i) for i in range(10)]
         shifted = deepcopy(reference)

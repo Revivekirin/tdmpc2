@@ -24,14 +24,14 @@
   },
   "current_local_regression": {
     "synthetic_pairing_tests": {
-      "passed": 9,
+      "passed": 10,
       "failed": 0
     },
     "dynamics_shift_tests": {
       "passed": 6,
       "failed": 0
     },
-    "checkpoint_backed_matrix": "NOT_RUN_LOCAL_CUDA_RUNTIME_UNAVAILABLE",
+    "checkpoint_backed_matrix": "24_RUNS_PASS_OBSERVED_PREFIX_FROM_UPLOADED_ZIP",
     "benchmark_v2_tests": "NOT_RUN_LOCAL_OMEGACONF_MISSING",
     "new_50_episode_benchmark": "NOT_RUN_OLD_RESULTS_UNCHANGED"
   },
