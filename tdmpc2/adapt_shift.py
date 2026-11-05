@@ -26,9 +26,11 @@ def json_default(x):
     return str(x)
 
 
-def episode(agent, env, seed, adapter=None, diagnostic=None, planner_metrics=None):
+def episode(agent, env, seed, adapter=None, diagnostic=None, planner_metrics=None, on_reset=None):
     set_seed(seed)
     obs = env.reset(seed=seed)
+    if on_reset is not None:
+        on_reset(env, seed)
     done, count, native, total = False, 0, 0, 0.
     while not done:
         if planner_metrics is not None and count == 0:

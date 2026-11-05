@@ -1,0 +1,12 @@
+defaults:
+  - stage3b
+  - _self_
+stage3a:
+  mode: frozen
+  native_budgets: []
+  fixed_data_path: null
+  planner_trace: false
+severity:
+  output: null
+  run_id: null
+  log_eef: false

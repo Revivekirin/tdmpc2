@@ -115,13 +115,25 @@ if __name__ == '__main__':
     parser.add_argument('--suite', type=Path, default=Path('benchmarks/stage3b_suite.json'))
     parser.add_argument('--checkpoint', required=True)
     parser.add_argument('--output', type=Path, default=Path('results/stage3b-generalization'))
-    parser.add_argument('--phase', choices=['collect','adapt'], required=True)
+    parser.add_argument('--phase', choices=['collect','adapt','severity'], required=True)
     parser.add_argument('--smoke', action='store_true')
     parser.add_argument('--execute', action='store_true')
     parser.add_argument('--continue-suite', action='store_true', help='Skip completed runs; archive incomplete runs and restart them from pretrained weights.')
     parser.add_argument('--recovered-root', type=Path, help='Runs directory containing completed checkpoint recoveries.')
+    from stage3b_severity import add_arguments, launch
+    add_arguments(parser)
     args = parser.parse_args()
     suite = json.loads(args.suite.read_text())
+    if args.phase == 'severity':
+        try:
+            launch(args, suite)
+        except (ValueError, FileExistsError) as error:
+            parser.error(str(error))
+        sys.exit(0)
+    if (args.shift_type or args.shift_value is not None or args.shift_values or args.pilot
+            or args.set_id != 0 or args.method != 'frozen' or args.run_id or args.episodes != 10
+            or args.log_eef or args.dry_run):
+        parser.error('Severity CLI flags require --phase severity; existing collect/adapt uses --suite.')
     output = args.output.resolve()
     if args.smoke and output.name == 'stage3b-generalization':
         parser.error('--smoke requires a separate --output directory')

@@ -112,6 +112,9 @@ class ShiftWrapper:
             record['analysis_native_terminated'] = bool(done and not info.get('TimeLimit.truncated', False))
             record['analysis_delay_queue_before'] = queue_before if 'queue' in self.__dict__ else 'NOT_APPLICABLE'
         self._last = record
+        native_observer = self.__dict__.get('native_step_observer')
+        if native_observer is not None:
+            native_observer(obs, record)
         if pairing_observer is not None:
             pairing_observer(obs, record, queue_before)
         info = dict(info, shift_record=record)
