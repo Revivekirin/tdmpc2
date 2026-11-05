@@ -227,7 +227,7 @@ newly completed runs and archives/restarts any newly incomplete runs. Report out
 directory. Only analysis of the complete selected suite generates full results;
 `--allow-partial` may be used separately for an explicitly partial report.
 
-## Prepare missing data after consolidating runs
+## Consolidating runs and preserving shared data
 
 Once completed recovery runs have been moved into the canonical `runs/` tree,
 `recovered/` may contain only empty directories. On the server, from the experiment
@@ -236,26 +236,12 @@ chain only; it refuses to remove nonempty directories. Do not use recursive
 forced deletion for this cleanup.
 
 The full suite needs twelve shared datasets (four shifts × three seed sets).
-Run the following from repository root with the current launcher/helper scripts:
-
-```bash
-# Read-only inventory and completed-run hash checks.
-python scripts/prepare_stage3b_data.py --checkpoint "$TD_MPC2_CHECKPOINT"
-# Collect missing datasets only; existing files remain untouched.
-python scripts/prepare_stage3b_data.py --checkpoint "$TD_MPC2_CHECKPOINT" --execute
-```
-
-This uses the existing Stage 3A collector. Candidates are first written under
-`data-candidates/<attempt>/`. When a condition already has completed results, the
-candidate must match the original dataset SHA-256 in metadata before it can enter
-`data/`. Matching files are installed without overwriting an existing destination.
-Mismatches are preserved as candidates and the command ends with an error after
-processing the missing files. Restore the original dataset from backup, or make
-an explicit decision to archive and rerun every method for that condition with a
-new shared dataset. Same seeds alone are not proof of identical transitions.
-Completed runs and their metadata are never changed by preparation. The existing
+Use `scripts/run_stage3b.py --phase collect` for collection as documented above.
+It refuses to overwrite existing datasets; automatic missing-only collection is
+not supported. If a completed condition's dataset is missing, restore the original
+file from backup. Same seeds alone are not proof of identical transitions. The
 resume checkpoint contains adaptation replay, not the shared held-out dataset.
 
-Preparation does not launch the full adaptation suite. On successful completion,
-continue with `--phase adapt --continue-suite --execute` without `--recovered-root`
-when all completed runs have been consolidated into `runs/`.
+Once the required data is available, continue with
+`--phase adapt --continue-suite --execute` without `--recovered-root` when all
+completed runs have been consolidated into `runs/`.
