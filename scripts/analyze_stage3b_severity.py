@@ -18,7 +18,7 @@ def inspect(entry, manifest):
     row=dict(run_id=manifest['run_id'],shift_type=entry['shift_type'],shift_value=entry['shift_value'],
              set_id=entry['set_id'],status='MISSING',reason='',episode_count=0,success='',
              episode_return='',episode_length='',nominal_success='',initial_state_set_sha256='',
-             shift_definition_sha256='',path=str(path))
+             shift_definition_sha256='',source_sha256='',path=str(path))
     meta_path=path/'severity-metadata.json';done_path=path/'severity-complete.json'
     if not meta_path.exists():
         if path.exists(): row.update(status='PARTIAL',reason='Directory exists without metadata')
@@ -35,6 +35,7 @@ def inspect(entry, manifest):
         identity=(meta['checkpoint_sha256'],meta['protocol_controls_sha256'],meta['code_revision'],
                   meta.get('source_sha256'),json.dumps(meta['environment_versions'],sort_keys=True),len(entry['seeds']))
         row['shift_definition_sha256']=meta['shift_definition_sha256']
+        row['source_sha256']=meta.get('source_sha256','')
         if not done_path.exists():
             row.update(status='PARTIAL',reason='No completion record')
             return row,identity
@@ -104,11 +105,22 @@ def summarize(manifests, output, latest=None):
         manifest=json.loads(Path(manifest_path).read_text())
         for entry in manifest['entries']:
             row,identity=inspect(entry,manifest);rows.append(row);identities.append(identity)
-    # Reject mixing controls rather than selecting an arbitrary reference protocol.
-    valid_ids={identity for row,identity in zip(rows,identities) if row['status']=='COMPLETE'}
-    if len(valid_ids)>1:
+    # A figure is drawn per shift. Require shared checkpoint/evaluation controls
+    # globally, and identical source within each shift, where severities are
+    # compared. Distinct shifts may have distinct validation-only source builds;
+    # their source hashes remain visible in the summary for provenance.
+    complete_pairs=[(row,identity) for row,identity in zip(rows,identities) if row['status']=='COMPLETE']
+    scientific_ids={(identity[0],identity[1],identity[4],identity[5])
+                    for _,identity in complete_pairs}
+    if len(scientific_ids)>1:
         for row in rows:
-            if row['status']=='COMPLETE': row.update(status='PROTOCOL_INCOMPATIBLE',reason='Mixed checkpoint/code/evaluation controls')
+            if row['status']=='COMPLETE': row.update(status='PROTOCOL_INCOMPATIBLE',reason='Mixed checkpoint/evaluation controls')
+    for kind in {row['shift_type'] for row,_ in complete_pairs}:
+        subset=[(row,identity) for row,identity in complete_pairs if row['shift_type']==kind]
+        if len({identity for _,identity in subset})>1:
+            for row,_ in subset:
+                if row['status']=='COMPLETE':
+                    row.update(status='PROTOCOL_INCOMPATIBLE',reason='Mixed source revisions within shift')
     groups={}
     for row in rows:
         if row['status']=='COMPLETE':
@@ -117,11 +129,12 @@ def summarize(manifests, output, latest=None):
     for duplicates in groups.values():
         if len(duplicates)>1:
             for row in duplicates: row.update(status='PROTOCOL_INCOMPATIBLE',reason='Duplicate evaluation set; select one run')
-    for seed_set in {r['set_id'] for r in rows}:
-        subset=[r for r in rows if r['set_id']==seed_set and r['status']=='COMPLETE']
+    for kind,seed_set in {(r['shift_type'],r['set_id']) for r in rows}:
+        subset=[r for r in rows if r['shift_type']==kind and r['set_id']==seed_set
+                and r['status']=='COMPLETE']
         if len({r['initial_state_set_sha256'] for r in subset})>1:
             for row in subset:
-                row.update(status='PROTOCOL_INCOMPATIBLE',reason='Initial simulator states differ across severities/shifts')
+                row.update(status='PROTOCOL_INCOMPATIBLE',reason='Nominal initial states differ across severities')
     for kind in {r['shift_type'] for r in rows}:
         subset=[r for r in rows if r['shift_type']==kind and r['status']=='COMPLETE']
         if len({r['shift_definition_sha256'] for r in subset})>1:

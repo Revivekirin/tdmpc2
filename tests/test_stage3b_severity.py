@@ -266,5 +266,33 @@ class SeverityTests(unittest.TestCase):
             self.assertIn('16 Frozen conditions',p.stdout)
             self.assertFalse(output.exists())
 
+    def test_combined_summary_keeps_shift_revisions_separate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            manifest=dict(run_id='combined',checkpoint_sha256='same',task='pick-cube',
+                          model_size=5,episodic=False,log_eef=True,
+                          entries=[dict(path=str(root/'a'),shift_type='action_delay',shift_value=1,set_id=0,seeds=[4000]),
+                                   dict(path=str(root/'b'),shift_type='object_mass',shift_value=1.5,set_id=0,seeds=[4000])])
+            path=root/'manifest.json';path.write_text(json.dumps(manifest))
+            rows=[]
+            for entry,source in zip(manifest['entries'],('old-source','new-source')):
+                row,_=inspect(entry,manifest)
+                row.update(status='COMPLETE',episode_count=1,success=1.,episode_return=1.,
+                           episode_length=1.,nominal_success=1.,initial_state_set_sha256='same',
+                           shift_definition_sha256=entry['shift_type'],source_sha256=source)
+                rows.append(row)
+            ids=[('same','controls','rev-old','old-source','environment',1),
+                 ('same','controls','rev-new','new-source','environment',1)]
+            with patch('analyze_stage3b_severity.inspect',side_effect=list(zip(rows,ids))),\
+                    patch('analyze_stage3b_severity.plot'):
+                result=summarize([path],root/'combined')
+            self.assertEqual([r['status'] for r in result],['COMPLETE','COMPLETE'])
+            rows[1]['shift_type']='action_delay'
+            rows[1]['shift_definition_sha256']='action_delay'
+            with patch('analyze_stage3b_severity.inspect',side_effect=list(zip(rows,ids))),\
+                    patch('analyze_stage3b_severity.plot'):
+                result=summarize([path],root/'mixed')
+            self.assertTrue(all(r['status']=='PROTOCOL_INCOMPATIBLE' for r in result))
+
 
 if __name__=='__main__':unittest.main()

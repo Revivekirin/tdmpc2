@@ -97,7 +97,7 @@ Generated run IDs are unique UTC timestamp + UUID suffix. Supplying an existing 
 
 Summary marks COMPLETE, PARTIAL, MISSING or PROTOCOL_INCOMPATIBLE. Missing is relative to the manifest, not all conceivable severity values. Only complete compatible conditions contribute rates/plots. It checks checkpoint/config/source/environment compatibility, seed counts, zero model drift/updates, trajectory presence and array lengths. Each new evaluation compares shifted and nominal reset observations, object pose/velocity and robot joint position/velocity within 1e-6. It also stores the full simulator state/hash separately for audit: object-mass actor rebuilding can change that representation without changing the measured initial kinematics. Legacy results without kinematic evidence still require exact full-state hash equality. The summary compares nominal initial-state hashes across severities for a seed set. Duplicate evaluations of the same set/condition are rejected instead of treated as independent repeats. Each plot uses the actual parameter value, displays episode/set counts and matched nominal references. Sample SD error bars appear only for multiple independent sets, never inferred from repeated evaluation of the same set. No CI is claimed.
 
-Combine selected manifests explicitly (same evaluation episode counts and source/protocol):
+Combine selected manifests explicitly. The analyzer requires the same checkpoint, evaluation controls and environment versions for every condition, and the same source revision for severity values within each shift. Source revisions may differ across distinct shifts; their hashes remain in the CSV, and no results are averaged across shifts:
 
 ```bash
 python scripts/analyze_stage3b_severity.py \
@@ -106,7 +106,7 @@ python scripts/analyze_stage3b_severity.py \
   --output results/stage3b-generalization/severity_sweep/combined-v1
 ```
 
-One-episode smoke is intentionally protocol-incompatible with ten-episode pilots for aggregation. Summary generation also runs after a subprocess failure; if killed abruptly, use the analyzer manually. Independent source revisions are conservatively not averaged together.
+One-episode smoke is intentionally protocol-incompatible with ten-episode pilots for aggregation. Summary generation also runs after a subprocess failure; if killed abruptly, use the analyzer manually. Independent source revisions within the same shift are conservatively not averaged together.
 
 ## Trajectory schema
 
