@@ -63,7 +63,9 @@ Verify its revision and local changes first (`git rev-parse HEAD`, `git status
 --short`). No server address was available during local implementation.
 
 ```bash
-export TD_MPC2_CHECKPOINT=/absolute/path/to/pick-cube-1.pt
+# Previously recorded server checkpoint location; confirm it still exists.
+export TD_MPC2_CHECKPOINT="$PWD/checkpoints/maniskill2/pick-cube-1.pt"
+test -f "$TD_MPC2_CHECKPOINT" || { echo "Checkpoint missing: $TD_MPC2_CHECKPOINT"; exit 1; }
 # Print commands only (default); this does NOT start the full suite.
 python scripts/run_stage3b.py --checkpoint "$TD_MPC2_CHECKPOINT" --phase collect
 python scripts/run_stage3b.py --checkpoint "$TD_MPC2_CHECKPOINT" --phase adapt

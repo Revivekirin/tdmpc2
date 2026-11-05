@@ -47,6 +47,12 @@ if __name__ == '__main__':
     if args.smoke and output.name == 'stage3b-generalization':
         parser.error('--smoke requires a separate --output directory')
     if args.execute:
+        checkpoint = Path(args.checkpoint).expanduser()
+        if not args.checkpoint.strip() or not checkpoint.is_file():
+            parser.error(f'Pretrained checkpoint not found: {args.checkpoint!r}. '
+                         'Set --checkpoint to an existing pretrained .pt file; '
+                         'no output files have been created.')
+        args.checkpoint = str(checkpoint.resolve())
         (output / 'configs').mkdir(parents=True, exist_ok=True)
         effective_suite = dict(suite, run_id=output.name)
         if args.smoke:
