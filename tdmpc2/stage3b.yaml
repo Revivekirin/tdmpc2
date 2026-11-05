@@ -1,0 +1,10 @@
+defaults:
+  - stage3a_matched
+  - _self_
+stage3a:
+  native_budgets: [800,1600,3200,6400,12800]
+  output: results/stage3b-generalization/runs/${dynamics_shift.parameter.type}
+  fixed_data_path: results/stage3b-generalization/data/${dynamics_shift.parameter.type}/set-${stage3a.seed_set}.pt
+stage3b:
+  run_id: stage3b-generalization
+  resume: null

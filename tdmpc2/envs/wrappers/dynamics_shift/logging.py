@@ -16,9 +16,9 @@ def find_shift(env):
     raise ValueError('No benchmark shift wrapper found.')
 
 
-def capture_environment(env):
+def capture_environment(env, allow_pending=False):
     shift = find_shift(env)
-    if shift._decision_open:
+    if shift._decision_open and not allow_pending:
         raise ValueError('Full environment snapshots require a completed decision.')
     native = shift.unwrapped
     controller = getattr(getattr(native, 'agent', None), 'controller', None)
@@ -26,7 +26,7 @@ def capture_environment(env):
         raise NotImplementedError('Exact simulator resume requires controller get_state/set_state support.')
     counters, wrapper = [], env
     while wrapper is not None:
-        fields = {key: deepcopy(wrapper.__dict__[key]) for key in ('_t', '_elapsed_steps') if key in wrapper.__dict__}
+        fields = {key: deepcopy(wrapper.__dict__[key]) for key in ('_t', '_elapsed_steps', '_stage3b_pending') if key in wrapper.__dict__}
         counters.append(fields)
         wrapper = wrapper.__dict__.get('env')
     rngs = {key: deepcopy(getattr(native, key).get_state()) for key in ('_main_rng', '_episode_rng')

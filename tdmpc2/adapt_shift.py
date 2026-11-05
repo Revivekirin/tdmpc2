@@ -202,6 +202,7 @@ def evaluate(agent, adapter, cfg, make_env, baseline_predictor):
                         planner_trace_summaries=planner_metrics,
                         planner_q_input_moments=dict(count=q_count, mean=q_mean.cpu().tolist(), std=q_std.cpu().tolist()),
                         success=float(np.mean([e['success'] for e in episodes])),
+                        episode_return=float(np.mean([e['episode_return'] for e in episodes])),
                         episode_length=float(np.mean([e['episode_length'] for e in episodes])),
                         held_out_latent_prediction_error=mse_stats['transition']['mean'],
                         held_out_latent_prediction_stats=mse_stats,
@@ -292,6 +293,11 @@ def main(cfg):
             if fixed_dataset['version'] != 1 or fixed_dataset['identity'] != identity:
                 raise ValueError('Fixed-data checkpoint/shift/planner/seeds provenance mismatch.')
         output = Path(hydra.utils.to_absolute_path(settings['output']))
+        if cfg.get('stage3b') is not None:
+            from common.stage3b import run
+            run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
+                fixed_dataset, fixed_hash, fixed_path, output, resolved)
+            return
         if settings['native_budgets']:
             output = output / f"set-{settings['seed_set']}"
         output = output / settings['mode'] / str(cfg.seed)

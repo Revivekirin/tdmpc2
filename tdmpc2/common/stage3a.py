@@ -3,6 +3,7 @@ from collections import deque
 from contextlib import contextmanager
 from copy import deepcopy
 import random
+import time
 import torch
 import torch.nn.functional as F
 
@@ -91,6 +92,8 @@ class EpisodeAdapter:
         self.initial_fixed = self.fixed_state()
         self.episodes = self.transitions = self.native_steps = self.gradient_steps = 0
         self.evaluating = self.in_episode = False
+        self.update_compute_time = 0.
+        self.initial_predictor = deepcopy(model._dynamics.state_dict())
         self.last_metrics = dict(consistency_loss=None, predictor_gradient_norm=None, predictor_update_norm=None)
 
     def fixed_state(self):
@@ -128,6 +131,9 @@ class EpisodeAdapter:
         if self.optimizer is None or len(self.replay) < max(self.settings['warmup'], self.settings['batch_size']):
             return self.last_metrics
         metrics = []
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize(self.device)
+        started = time.perf_counter()
         for _ in range(self.settings['updates_per_episode']):
             batch = self.rng.sample(list(self.replay), self.settings['batch_size'])
             before = [p.detach().clone() for p in self.params]
@@ -140,6 +146,9 @@ class EpisodeAdapter:
             metrics.append([loss.item(), norm.item(), delta.item()])
             self.gradient_steps += 1
         self.optimizer.zero_grad(set_to_none=True)
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize(self.device)
+        self.update_compute_time += time.perf_counter() - started
         self.last_metrics = dict(zip(self.last_metrics, torch.tensor(metrics).mean(0).tolist()))
         self.assert_fixed()
         return self.last_metrics
@@ -156,6 +165,40 @@ class EpisodeAdapter:
     def assert_fixed(self):
         if not equal_state(self.initial_fixed, self.fixed_state()):
             raise AssertionError('A frozen encoder/reward/Q/policy/target parameter changed.')
+        if self.optimizer is None and not equal_state(self.initial_predictor, self.model._dynamics.state_dict()):
+            raise AssertionError('Frozen predictor changed.')
+
+    def state_dict(self):
+        """Adapter state; environment/planner/global RNG are the runner's responsibility."""
+        return deepcopy(dict(version=1, settings=self.settings,
+            predictor=self.model._dynamics.state_dict(),
+            optimizer=self.optimizer.state_dict() if self.optimizer else None,
+            replay=list(self.replay), rng=self.rng.getstate(),
+            counters=(self.episodes, self.transitions, self.native_steps, self.gradient_steps),
+            in_episode=self.in_episode, episode_predictor=getattr(self, 'episode_predictor', None),
+            last_metrics=self.last_metrics, update_compute_time=self.update_compute_time))
+
+    def load_state_dict(self, state):
+        ignored = {'native_budgets', 'output', 'fixed_data_collect'}
+        controls = lambda s: {k: v for k, v in s.items() if k not in ignored}
+        if state['version'] != 1 or controls(state['settings']) != controls(self.settings):
+            raise ValueError('Adapter resume configuration mismatch.')
+        self.model._dynamics.load_state_dict(state['predictor'])
+        if self.optimizer is not None:
+            self.optimizer.load_state_dict(state['optimizer'])
+        elif state['optimizer'] is not None:
+            raise ValueError('Frozen resume contains optimizer state.')
+        self.replay = deque(deepcopy(state['replay']), maxlen=self.settings['capacity'])
+        self.rng.setstate(state['rng'])
+        self.episodes, self.transitions, self.native_steps, self.gradient_steps = state['counters']
+        self.in_episode = state['in_episode']
+        self.episode_predictor = deepcopy(state['episode_predictor'])
+        if self.episode_predictor is not None:
+            self.episode_predictor = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
+                                      for k, v in self.episode_predictor.items()}
+        self.last_metrics = deepcopy(state['last_metrics'])
+        self.update_compute_time = state['update_compute_time']
+        self.assert_fixed()
 
     @contextmanager
     def held_out(self, allow_in_episode=False):
@@ -186,4 +229,8 @@ class EpisodeAdapter:
         return dict(adaptation_episodes=self.episodes, adaptation_transitions=self.transitions,
                     adaptation_native_steps=self.native_steps, adaptation_policy_decisions=self.transitions,
                     gradient_update_steps=self.gradient_steps, replay_size=len(self.replay),
+                    replay_samples=self.gradient_steps * self.settings['batch_size'],
+                    update_compute_time=self.update_compute_time,
+                    parameter_drift=float(torch.sqrt(sum((v.detach()-self.initial_predictor[k].to(v.device)).square().sum()
+                        for k, v in self.model._dynamics.state_dict().items() if v.is_floating_point()))),
                     reward_q_parameter_invariance=True, **self.last_metrics)

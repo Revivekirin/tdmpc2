@@ -4,11 +4,20 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from analyze_stage3a_matched import analyze
 
 
 class ReportTests(unittest.TestCase):
+    def test_missing_plot_dependency_does_not_create_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / 'report'
+            with patch.dict(sys.modules, {'matplotlib': None}):
+                with self.assertRaises(ModuleNotFoundError):
+                    analyze(Path(tmp), output)
+            self.assertFalse(output.exists())
+
     def test_paired_report_and_mismatch_rejection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / 'runs'

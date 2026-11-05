@@ -7,6 +7,11 @@ import statistics
 
 
 def analyze(root, output):
+    # Check plotting dependencies before creating any partial report artifacts.
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
     rows, budgets, datasets, checkpoints, methods = [], {}, {}, set(), {}
     config_reference = None
     seed_sets = {}
@@ -108,9 +113,6 @@ def analyze(root, output):
                 entry[metric+'_count'] = len(values)
             summary.append(entry)
     write_csv('across_seed_sets.csv', summary)
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
     fig, axes = plt.subplots(2, 2, figsize=(11, 8))
     for ax, metric, label in zip(axes.flat,
         ('shifted_success','fixed_current_mse','nominal_success','successful_completion_length'),

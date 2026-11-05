@@ -47,6 +47,9 @@ class ManiSkillWrapper(gym.Env):
 		return self.env.reset(**kwargs)
 	
 	def step(self, action):
+		if self.__dict__.get('native_checkpoint') is not None:
+			from common.stage3b import resumable_repeat
+			return resumable_repeat(self, action)
 		reward = 0
 		native_steps = []
 		benchmark = isinstance(self.env, ShiftWrapper)

@@ -252,6 +252,19 @@ resume checkpoint가 아니다.
 
 집계와 그림 생성(NumPy/Matplotlib 필요):
 
+ManiSkill2 0.4.1 환경에서는 NumPy<1.24 제약을 유지해야 하므로 최신 Matplotlib를
+버전 제한 없이 설치하지 않는다. 아래 고정 버전 파일로 설치한 뒤 `python -m pip check`로
+환경 의존성을 확인한다. 이미 NumPy 2.x로 올라갔다면 같은 명령으로 버전을 복구한다.
+
+```bash
+python -m pip install -r scripts/requirements-stage3a-analysis.txt
+python -m pip check
+```
+
+분석기는 plotting 의존성을 먼저 확인한 뒤 output을 생성한다. 이전 코드로 실행하다가
+import 오류가 났다면 기존 output에 일부 CSV가 남아 있을 수 있으므로 새 output 경로로
+재실행한다. adaptation과 데이터 수집을 다시 실행할 필요는 없다.
+
 ```bash
 python scripts/analyze_stage3a_matched.py \
   --root stage3a-matched-delay1 \
