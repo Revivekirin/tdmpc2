@@ -50,16 +50,47 @@ def measured_pose(native):
     return xyz, quat
 
 
+def initial_kinematics(native, observation):
+    """Observable reset state, excluding simulator bookkeeping and physical constants."""
+    if hasattr(observation, 'detach'):
+        observation = observation.detach().cpu().numpy()
+    state = dict(observation=np.asarray(observation,dtype=float).copy())
+    actor = getattr(native, 'obj', None)
+    if actor is not None:
+        pose = actor.get_pose()
+        state['object_pose_xyz'] = np.asarray(pose.p,dtype=float).copy()
+        state['object_pose_quaternion_wxyz'] = np.asarray(pose.q,dtype=float).copy()
+        state['object_velocity_xyz'] = np.asarray(actor.get_velocity(),dtype=float).copy()
+        state['object_angular_velocity_xyz'] = np.asarray(actor.get_angular_velocity(),dtype=float).copy()
+    robot = getattr(getattr(native, 'agent', None), 'robot', None)
+    if robot is not None:
+        state['robot_qpos'] = np.asarray(robot.get_qpos(),dtype=float).copy()
+        state['robot_qvel'] = np.asarray(robot.get_qvel(),dtype=float).copy()
+    return state
+
+
+def same_initial_kinematics(left, right, atol=1e-6):
+    if left.keys() != right.keys():
+        return False
+    return all(np.shape(left[key]) == np.shape(right[key]) and
+               np.allclose(left[key],right[key],rtol=0,atol=atol)
+               for key in left)
+
+
 class NativeTrajectory:
     def __init__(self, shift, expected, log_eef):
         self.shift,self.expected,self.log_eef=shift,expected,log_eef
         self.rows=[]; self.commands=[]; self.initial=None; self.effective=None
 
-    def reset(self, env, seed):
+    def reset(self, env, seed, observation=None):
         native=self.shift.unwrapped
         state=np.asarray(native.get_state()).copy()
+        if observation is None:
+            observation = native.get_obs() if hasattr(native, 'get_obs') else state
+        kinematics=initial_kinematics(native,observation)
         self.initial=dict(evaluation_seed=seed,initial_state_sha256=hashlib.sha256(state.tobytes()).hexdigest(),
-                          initial_state=state.tolist())
+                          initial_state=state.tolist(),
+                          initial_kinematic_state={key:value.tolist() for key,value in kinematics.items()})
         if self.log_eef:
             xyz,q=measured_pose(native)
             self.initial.update(initial_eef_xyz=xyz.tolist(),initial_eef_quaternion_wxyz=q.tolist())
@@ -127,7 +158,7 @@ def evaluate_frozen(agent, cfg, make_env, episode_fn, output, metadata, find_shi
     rng=(random.getstate(),np.random.get_state(),torch.get_rng_state(),
          torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None)
     before=model_digest(agent.model)
-    results={}; effective={}; initial_ids={}
+    results={}; effective={}; initial_ids={}; initial_kinematic_states={}
     try:
         for condition in ('shifted','nominal'):
             config=deepcopy(cfg)
@@ -136,6 +167,7 @@ def evaluate_frozen(agent, cfg, make_env, episode_fn, output, metadata, find_shi
             shift=find_shift(env)
             expected=shift.parameter['shifted' if condition=='shifted' else 'nominal']
             results[condition]=[];effective[condition]=[];initial_ids[condition]=[]
+            initial_kinematic_states[condition]=[]
             try:
                 for seed in cfg.stage3a['evaluation_seeds']:
                     trajectory=NativeTrajectory(shift,expected,cfg.severity['log_eef'])
@@ -148,6 +180,7 @@ def evaluate_frozen(agent, cfg, make_env, episode_fn, output, metadata, find_shi
                     results[condition].append(result)
                     effective[condition].append(trajectory.effective)
                     initial_ids[condition].append(trajectory.initial['initial_state_sha256'])
+                    initial_kinematic_states[condition].append(trajectory.initial['initial_kinematic_state'])
                     with (output/'severity-episodes.jsonl').open('a') as f:
                         f.write(json.dumps(dict(condition=condition,**result))+'\n')
             finally:
@@ -157,9 +190,12 @@ def evaluate_frozen(agent, cfg, make_env, episode_fn, output, metadata, find_shi
                     if 'queue' in shift.__dict__: shift.queue.clear()
                 finally:
                     env.close()
-        if initial_ids['shifted']!=initial_ids['nominal']:
-            raise AssertionError('Shifted/nominal evaluation initial simulator states differ.')
+        for seed, shifted, nominal in zip(cfg.stage3a['evaluation_seeds'],
+                initial_kinematic_states['shifted'],initial_kinematic_states['nominal']):
+            if not same_initial_kinematics(shifted,nominal):
+                raise AssertionError(f'Shifted/nominal initial kinematics differ for seed {seed}.')
         return dict(evaluation=results,effective_physical_values=effective,initial_state_ids=initial_ids,
+                    initial_kinematic_states=initial_kinematic_states,
                     model_state_sha256=before,parameter_drift=0,gradient_updates=0,replay_updates=0,
                     nominal_restored=True)
     finally:

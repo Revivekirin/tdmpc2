@@ -30,7 +30,7 @@ def episode(agent, env, seed, adapter=None, diagnostic=None, planner_metrics=Non
     set_seed(seed)
     obs = env.reset(seed=seed)
     if on_reset is not None:
-        on_reset(env, seed)
+        on_reset(env, seed, obs)
     done, count, native, total = False, 0, 0, 0.
     while not done:
         if planner_metrics is not None and count == 0:

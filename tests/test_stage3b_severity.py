@@ -152,6 +152,24 @@ class SeverityTests(unittest.TestCase):
             np.testing.assert_allclose(nominal['executed_action'][0,:3],[.2,.3,.4])
             np.testing.assert_array_equal(shifted['timestep'],np.arange(4))
 
+    def test_physical_bookkeeping_differs_without_initial_kinematics_change(self):
+        from adapt_shift import episode
+        class PhysicalStateNative(MeasuredNative):
+            def __init__(self, bookkeeping):
+                super().__init__();self.bookkeeping=bookkeeping
+            def get_state(self):
+                return np.r_[self.state,self.bookkeeping]
+        cfg=types.SimpleNamespace(stage3a={'evaluation_seeds':[4000]},
+                                  severity={'log_eef':False},schedule={'type':'fixed'})
+        def make(c):
+            bookkeeping=1.5 if c.schedule['type']=='fixed' else 1.0
+            native=PhysicalStateNative(bookkeeping)
+            return Repeat(package.ActionShiftWrapper(native,config('action_gain',c.schedule['type'],1,.5)))
+        with tempfile.TemporaryDirectory() as tmp:
+            result=evaluate_frozen(Agent(),cfg,make,episode,Path(tmp),{},lambda e:e.shift)
+            self.assertNotEqual(result['initial_state_ids']['shifted'],result['initial_state_ids']['nominal'])
+            self.assertEqual(result['initial_kinematic_states']['shifted'],result['initial_kinematic_states']['nominal'])
+
     def test_model_change_rejected(self):
         from adapt_shift import episode
         agent=Agent()
@@ -221,6 +239,9 @@ class SeverityTests(unittest.TestCase):
             def make(c):return Repeat(package.ActionShiftWrapper(MeasuredNative(),config('action_gain',c.schedule['type'],1,.5)))
             result=evaluate_frozen(Agent(),cfg,make,episode,target,meta,lambda e:e.shift)
             (target/'severity-metadata.json').write_text(json.dumps(meta))
+            (target/'severity-complete.json').write_text(json.dumps(result,default=serial))
+            self.assertEqual(inspect(entry,manifest)[0]['status'],'COMPLETE')
+            result['initial_state_ids']['shifted']=['physics-rebuild-bookkeeping']
             (target/'severity-complete.json').write_text(json.dumps(result,default=serial))
             self.assertEqual(inspect(entry,manifest)[0]['status'],'COMPLETE')
             mp=root/'manifest.json';mp.write_text(json.dumps(manifest))

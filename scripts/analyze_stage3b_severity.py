@@ -10,6 +10,7 @@ import sys
 import zipfile
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tdmpc2'))
 from common.severity_protocol import PROTOCOL
+from common.severity_evaluation import same_initial_kinematics
 
 
 def inspect(entry, manifest):
@@ -73,8 +74,15 @@ def inspect(entry, manifest):
             if any(not math.isfinite(float(e[k])) for e in episodes for k in ('success','episode_return','episode_length')):
                 row.update(status='PROTOCOL_INCOMPATIBLE',reason='Non-finite evaluation metrics')
                 return row,identity
-        if result['initial_state_ids']['shifted']!=result['initial_state_ids']['nominal']:
-            row.update(status='PROTOCOL_INCOMPATIBLE',reason='Initial-state mismatch')
+        shifted_kin=result.get('initial_kinematic_states',{}).get('shifted')
+        nominal_kin=result.get('initial_kinematic_states',{}).get('nominal')
+        if shifted_kin is not None and nominal_kin is not None:
+            if (len(shifted_kin)!=len(entry['seeds']) or len(nominal_kin)!=len(entry['seeds'])
+                    or any(not same_initial_kinematics(a,b) for a,b in zip(shifted_kin,nominal_kin))):
+                row.update(status='PROTOCOL_INCOMPATIBLE',reason='Initial kinematics mismatch')
+                return row,identity
+        elif result['initial_state_ids']['shifted']!=result['initial_state_ids']['nominal']:
+            row.update(status='PROTOCOL_INCOMPATIBLE',reason='Initial-state mismatch; no kinematic evidence')
             return row,identity
         episodes=result['evaluation']['shifted']
         row.update(status='COMPLETE',episode_count=len(episodes),
