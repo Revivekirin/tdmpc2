@@ -49,14 +49,17 @@ def aggregate(raw):
     return [dict(zip(keys, key), **mean_sd(values)) for key,values in sorted(groups.items())], by_seed
 
 
-def analyze(root, output, suite, allow_partial=False):
+def analyze(root, output, suite, allow_partial=False, recovered_root=None):
     import matplotlib
     matplotlib.use('Agg')
     raw, costs, issues, seen, references, datasets, seed_controls = [], [], [], {}, {}, {}, {}
     checkpoints, run_ids = set(), set()
     shared_controls, finished = None, set()
     expected_grid = suite['budgets']
-    for path in sorted(root.rglob('metadata.json')):
+    from stage3b_results import selected_results
+    paths = (selected_results(root, recovered_root).values() if recovered_root is not None
+             else sorted(root.rglob('metadata.json')))
+    for path in paths:
         meta = json.loads(path.read_text())
         cfg = meta['config']
         if 'stage3a' not in cfg:
@@ -216,6 +219,7 @@ def analyze(root, output, suite, allow_partial=False):
     write_csv(tables/'stage3b_auc_seed_results.csv', auc_rows)
     write_csv(tables/'stage3b_auc_summary.csv', auc_summary)
     validation = dict(status='PARTIAL' if issues else 'PASS', issues=issues, run_id=next(iter(run_ids)),
+        recovered_root=str(recovered_root.resolve()) if recovered_root is not None else None,
         expected_budgets=expected_grid, n_runs=len(seen), input_root=str(root.resolve()),
         aggregation='Equal seed-set weights; mean ± sample SD (not CI); missing SD for n=1.',
         auc='Trapezoid with actual native-step intervals, per seed first; full curves only.')
@@ -327,5 +331,6 @@ if __name__ == '__main__':
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--suite',type=Path,default=Path('benchmarks/stage3b_suite.json'))
     parser.add_argument('--allow-partial',action='store_true')
+    parser.add_argument('--recovered-root',type=Path,help='Use completed recoveries instead of matching incomplete originals.')
     args=parser.parse_args()
-    print(json.dumps(analyze(args.root,args.output,json.loads(args.suite.read_text()),args.allow_partial),indent=2))
+    print(json.dumps(analyze(args.root,args.output,json.loads(args.suite.read_text()),args.allow_partial,args.recovered_root),indent=2))

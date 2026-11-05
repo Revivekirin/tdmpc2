@@ -164,3 +164,60 @@ Modified files: `tdmpc2/adapt_shift.py` (dispatch/return metric),
 `tdmpc2/common/stage3a.py` (state serialization/cost/drift/Frozen invariance),
 `tdmpc2/envs/maniskill.py` (opt-in resumable repeat),
 `tdmpc2/envs/wrappers/dynamics_shift/logging.py` (pending-repeat snapshot support).
+
+## Continue a suite: skip completed runs and restart incomplete runs
+
+Use the updated `scripts/run_stage3b.py` and `scripts/stage3b_results.py` on the
+server, together with the previously updated `scripts/analyze_stage3b.py`.
+`--continue-suite` now applies this policy:
+
+- Completed original run: validate and skip.
+- Completed matching recovery: validate and skip; keep its incomplete original.
+- Incomplete run without a completed recovery: archive its whole run directory,
+  then restart from the pretrained checkpoint at native budget zero.
+- Unstarted condition: execute normally.
+
+The shared selector checks matching config, checkpoint/data hashes and a complete
+milestone grid, and rejects conflicting completed results. A `complete.json`
+marker with invalid artifacts is an error, not permission to restart a completed
+condition. Missing or partially written metadata without a completion marker is
+handled as an incomplete directory.
+
+Archival uses a same-filesystem rename to
+`<experiment>/archived-incomplete/<attempt-id>/<shift>/set-N/<method>/1/`.
+Incomplete recovery directories for the requested conditions are also archived
+outside their own `runs/` root. Model snapshots, optimizer/replay state and logs
+are retained there, but are NOT loaded into the restarted run. Shared fixed data
+and the pretrained checkpoint are unchanged. Archived runs are not included in
+analysis. This does not free disk space; disk-full failures still require available
+space before retrying.
+
+```bash
+# Preview only. For the reported delay set-0/set-1 results: skip 4, run 20.
+python scripts/run_stage3b.py --checkpoint "$TD_MPC2_CHECKPOINT" \
+  --phase adapt --continue-suite \
+  --recovered-root results/stage3b-recovered/runs
+
+# Archive incomplete runs, execute fresh restarts/new runs, then aggregate.
+(
+set -e
+python scripts/run_stage3b.py --checkpoint "$TD_MPC2_CHECKPOINT" \
+  --phase adapt --continue-suite \
+  --recovered-root results/stage3b-recovered/runs --execute
+python scripts/analyze_stage3b.py \
+  --root results/stage3b-generalization/runs \
+  --recovered-root results/stage3b-recovered/runs \
+  --suite results/stage3b-generalization/configs/adapt-suite.json \
+  --output results/stage3b-generalization/report-continued
+)
+```
+
+Collection is not repeated. The launcher verifies that every required fixed-data
+file exists before launching. Continuation command/selection/suite manifests get
+unique names in `configs/`; previous manifests remain untouched. The selection
+manifest records archive sources and attempt ID. All conditions are preflighted
+before any archival. Omitting `--execute` previews commands and archive candidates
+without writing or moving files. Re-running the same continuation command skips
+newly completed runs and archives/restarts any newly incomplete runs. Report output must still be a new
+directory. Only analysis of the complete selected suite generates full results;
+`--allow-partial` may be used separately for an explicitly partial report.

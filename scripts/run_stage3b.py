@@ -5,6 +5,77 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import hashlib
+from uuid import uuid4
+from stage3b_results import selected_results, completed, read
+
+
+def remaining_commands(planned, suite, output, recovered_root, checkpoint):
+    """Plan completed skips and fresh restarts. Planning never changes artifacts."""
+    selected = selected_results(output / 'runs', recovered_root, ignore_incomplete=True)
+    digest = hashlib.sha256()
+    with Path(checkpoint).open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    remaining, skipped, archives = [], [], []
+    for command in planned:
+        overrides = dict(arg.split('=', 1) for arg in command if '=' in arg)
+        name, method = overrides['dynamics_shift'], overrides['stage3a.mode']
+        group = int(overrides['stage3a.seed_set'])
+        key = name, method, group
+        path = selected.get(key)
+        relative = Path(name) / f'set-{group}' / method / '1'
+        destination = output / 'runs' / relative
+        # A failed recovery is not a completed replacement. Preserve it outside
+        # its analysis root too, so a later report cannot count it as a duplicate.
+        if recovered_root is not None:
+            recovered = recovered_root / relative
+            if recovered.exists() and not (recovered / 'complete.json').exists():
+                archives.append(recovered)
+        dataset = Path(overrides['stage3a.fixed_data_path'])
+        if not dataset.is_file():
+            raise ValueError(f'Missing fixed dataset: {dataset}')
+        if path is not None and completed(path):
+            meta = read(path)
+            cfg = meta['config']
+            if (meta['checkpoint_sha256'] != digest.hexdigest()
+                    or cfg['task'] != suite['task']
+                    or cfg['model_size'] != suite['model_size']
+                    or cfg['episodic'] != suite['episodic']
+                    or cfg.get('seed', 1) != 1
+                    or cfg['schedule']['type'] != 'fixed'
+                    or cfg['stage3b']['run_id'] != output.name
+                    or cfg['dynamics_shift']['parameter']['shifted'] != json.loads(overrides['dynamics_shift.parameter.shifted'])
+                    or cfg['stage3a']['native_budgets'] != json.loads(overrides['stage3a.native_budgets'])):
+                raise ValueError(f'Completed run does not match requested experiment: {path.parent}')
+            skipped.append(str(path.parent))
+        else:
+            if destination.exists():
+                if (destination / 'complete.json').exists():
+                    raise ValueError(f'Completion marker without valid metadata: {destination}')
+                archives.append(destination)
+            remaining.append(command)
+    return remaining, skipped, archives
+
+
+def archive_incomplete(paths, archive_id):
+    """Same-filesystem rename, outside runs/; no checkpoint or dataset deletion."""
+    moves = []
+    for source in paths:
+        if (source / 'complete.json').exists():
+            raise ValueError(f'Run completed after planning; refusing to archive: {source}')
+        # Expected layout: <experiment>/runs/<shift>/set-N/<method>/1.
+        runs = source.parents[3]
+        if runs.name != 'runs' or source.is_symlink():
+            raise ValueError(f'Unexpected run directory: {source}')
+        target = runs.parent / 'archived-incomplete' / archive_id / source.relative_to(runs)
+        if target.exists():
+            raise FileExistsError(target)
+        moves.append((source, target))
+    for source, target in moves:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.rename(target)
+        print(f'Archived incomplete run: {source} -> {target}', flush=True)
 
 
 def commands(suite, checkpoint, output, phase, smoke=False):
@@ -41,27 +112,48 @@ if __name__ == '__main__':
     parser.add_argument('--phase', choices=['collect','adapt'], required=True)
     parser.add_argument('--smoke', action='store_true')
     parser.add_argument('--execute', action='store_true')
+    parser.add_argument('--continue-suite', action='store_true', help='Skip completed runs; archive incomplete runs and restart them from pretrained weights.')
+    parser.add_argument('--recovered-root', type=Path, help='Runs directory containing completed checkpoint recoveries.')
     args = parser.parse_args()
     suite = json.loads(args.suite.read_text())
     output = args.output.resolve()
     if args.smoke and output.name == 'stage3b-generalization':
         parser.error('--smoke requires a separate --output directory')
-    if args.execute:
+    if args.continue_suite and (args.phase != 'adapt' or args.smoke):
+        parser.error('--continue-suite is for full adaptation runs only')
+    if args.recovered_root and not args.continue_suite:
+        parser.error('--recovered-root requires --continue-suite')
+    if args.execute or args.continue_suite:
         checkpoint = Path(args.checkpoint).expanduser()
         if not args.checkpoint.strip() or not checkpoint.is_file():
             parser.error(f'Pretrained checkpoint not found: {args.checkpoint!r}. '
                          'Set --checkpoint to an existing pretrained .pt file; '
                          'no output files have been created.')
         args.checkpoint = str(checkpoint.resolve())
+    planned = list(commands(suite, args.checkpoint, output, args.phase, args.smoke))
+    skipped, archives = [], []
+    if args.continue_suite:
+        planned, skipped, archives = remaining_commands(planned, suite, output, args.recovered_root, args.checkpoint)
+        print(f'Completed runs skipped: {len(skipped)}; remaining runs: {len(planned)}', flush=True)
+        for path in archives:
+            print(f'Will archive incomplete directory: {path}', flush=True)
+    if args.execute:
         (output / 'configs').mkdir(parents=True, exist_ok=True)
         effective_suite = dict(suite, run_id=output.name)
         if args.smoke:
             effective_suite.update(shifts=suite['shifts'][:1], seed_sets=[0], budgets=[0,5,80,240])
-        with (output / 'configs' / (args.phase + '-suite.json')).open('x') as stream:
+        prefix = args.phase + ('-continue-' + uuid4().hex[:12] if args.continue_suite else '')
+        with (output / 'configs' / (prefix + '-suite.json')).open('x') as stream:
             json.dump(effective_suite, stream, indent=2)
-        with (output / 'configs' / (args.phase + '-commands.json')).open('x') as stream:
-            json.dump(list(commands(suite, args.checkpoint, output, args.phase, args.smoke)), stream, indent=2)
-    for command in commands(suite, args.checkpoint, output, args.phase, args.smoke):
+        with (output / 'configs' / (prefix + '-commands.json')).open('x') as stream:
+            json.dump(planned, stream, indent=2)
+        if args.continue_suite:
+            with (output / 'configs' / (prefix + '-selection.json')).open('x') as stream:
+                json.dump(dict(skipped=skipped, recovered_root=str(args.recovered_root),
+                               archive_sources=[str(p) for p in archives],
+                               archive_id=prefix, incomplete_policy='archive_and_restart_from_pretrained'), stream, indent=2)
+            archive_incomplete(archives, prefix)
+    for command in planned:
         print(shlex.join(command), flush=True)
         if args.execute:
             subprocess.run(command, check=True)
