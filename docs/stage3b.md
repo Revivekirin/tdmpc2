@@ -212,8 +212,13 @@ python scripts/analyze_stage3b.py \
 )
 ```
 
-Collection is not repeated. The launcher verifies that every required fixed-data
-file exists before launching. Continuation command/selection/suite manifests get
+Collection is not repeated. Completed runs are validated and skipped before
+checking dataset files. Only pending or restarted runs require the corresponding
+fixed-data file to exist. All missing pending datasets are reported together before
+archival or launching. If a paired method is already complete, restore its original
+dataset rather than replacing it with newly collected data. Missing data for
+completed conditions does not prevent CSV-based aggregation, but prevents later
+re-evaluation on those original transitions until restored. Continuation command/selection/suite manifests get
 unique names in `configs/`; previous manifests remain untouched. The selection
 manifest records archive sources and attempt ID. All conditions are preflighted
 before any archival. Omitting `--execute` previews commands and archive candidates
@@ -221,3 +226,36 @@ without writing or moving files. Re-running the same continuation command skips
 newly completed runs and archives/restarts any newly incomplete runs. Report output must still be a new
 directory. Only analysis of the complete selected suite generates full results;
 `--allow-partial` may be used separately for an explicitly partial report.
+
+## Prepare missing data after consolidating runs
+
+Once completed recovery runs have been moved into the canonical `runs/` tree,
+`recovered/` may contain only empty directories. On the server, from the experiment
+root, `rmdir -p recovered/runs/action_delay/set-1/dynamics_only` removes that empty
+chain only; it refuses to remove nonempty directories. Do not use recursive
+forced deletion for this cleanup.
+
+The full suite needs twelve shared datasets (four shifts × three seed sets).
+Run the following from repository root with the current launcher/helper scripts:
+
+```bash
+# Read-only inventory and completed-run hash checks.
+python scripts/prepare_stage3b_data.py --checkpoint "$TD_MPC2_CHECKPOINT"
+# Collect missing datasets only; existing files remain untouched.
+python scripts/prepare_stage3b_data.py --checkpoint "$TD_MPC2_CHECKPOINT" --execute
+```
+
+This uses the existing Stage 3A collector. Candidates are first written under
+`data-candidates/<attempt>/`. When a condition already has completed results, the
+candidate must match the original dataset SHA-256 in metadata before it can enter
+`data/`. Matching files are installed without overwriting an existing destination.
+Mismatches are preserved as candidates and the command ends with an error after
+processing the missing files. Restore the original dataset from backup, or make
+an explicit decision to archive and rerun every method for that condition with a
+new shared dataset. Same seeds alone are not proof of identical transitions.
+Completed runs and their metadata are never changed by preparation. The existing
+resume checkpoint contains adaptation replay, not the shared held-out dataset.
+
+Preparation does not launch the full adaptation suite. On successful completion,
+continue with `--phase adapt --continue-suite --execute` without `--recovered-root`
+when all completed runs have been consolidated into `runs/`.

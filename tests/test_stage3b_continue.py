@@ -58,6 +58,22 @@ class ContinueTests(unittest.TestCase):
             self.assertEqual(archives,[original])
             self.assertTrue(all('stage3b.resume=' not in arg for cmd in restart for arg in cmd))
             self.assertTrue(all(p.read_bytes()==value for p,value in before.items()))
+            # Neither completed originals nor a completed recovery need the
+            # dataset file merely to skip them. A pending paired method does.
+            for group in (0,1):
+                (output/'data'/'action_delay'/f'set-{group}.pt').unlink()
+            remaining, skipped, archives=remaining_commands(planned,suite,output,recovery,checkpoint)
+            self.assertEqual((len(remaining),len(skipped),archives),(20,4,[]))
+            (output/'data'/'action_gain'/'set-2.pt').unlink()
+            with self.assertRaises(ValueError) as error:
+                remaining_commands(planned,suite,output,None,checkpoint)
+            message=str(error.exception)
+            self.assertIn('action_delay/set-1.pt',message)
+            self.assertIn('action_gain/set-2.pt',message)
+            self.assertNotIn('action_delay/set-0.pt',message)
+            self.assertEqual(message.count('action_gain/set-2.pt'),1)
+            self.assertIn('restore its original dataset',message)
+            self.assertTrue(original.exists())
             meta=json.loads((restored/'metadata.json').read_text())
             meta['fixed_data_sha256']='different'
             (restored/'metadata.json').write_text(json.dumps(meta))

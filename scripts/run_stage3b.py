@@ -18,6 +18,7 @@ def remaining_commands(planned, suite, output, recovered_root, checkpoint):
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
             digest.update(chunk)
     remaining, skipped, archives = [], [], []
+    missing_datasets = set()
     for command in planned:
         overrides = dict(arg.split('=', 1) for arg in command if '=' in arg)
         name, method = overrides['dynamics_shift'], overrides['stage3a.mode']
@@ -32,9 +33,6 @@ def remaining_commands(planned, suite, output, recovered_root, checkpoint):
             recovered = recovered_root / relative
             if recovered.exists() and not (recovered / 'complete.json').exists():
                 archives.append(recovered)
-        dataset = Path(overrides['stage3a.fixed_data_path'])
-        if not dataset.is_file():
-            raise ValueError(f'Missing fixed dataset: {dataset}')
         if path is not None and completed(path):
             meta = read(path)
             cfg = meta['config']
@@ -50,11 +48,19 @@ def remaining_commands(planned, suite, output, recovered_root, checkpoint):
                 raise ValueError(f'Completed run does not match requested experiment: {path.parent}')
             skipped.append(str(path.parent))
         else:
+            dataset = Path(overrides['stage3a.fixed_data_path'])
+            if not dataset.is_file():
+                missing_datasets.add(str(dataset))
             if destination.exists():
                 if (destination / 'complete.json').exists():
                     raise ValueError(f'Completion marker without valid metadata: {destination}')
                 archives.append(destination)
             remaining.append(command)
+    if missing_datasets:
+        raise ValueError('Missing fixed datasets required by pending runs (no runs archived or launched):\n'
+                         + '\n'.join(sorted(missing_datasets))
+                         + '\nIf a paired method is already complete, restore its original dataset; '
+                           'do not substitute newly collected data.')
     return remaining, skipped, archives
 
 
