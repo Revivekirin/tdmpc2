@@ -13,11 +13,26 @@ def serial(value):
 
 
 def model_digest(model):
+    import torch
     h = hashlib.sha256()
-    for key, tensor in sorted(model.state_dict().items()):
-        data = tensor.detach().cpu().contiguous()
-        h.update(key.encode()); h.update(str(data.dtype).encode()); h.update(str(tuple(data.shape)).encode())
-        h.update(data.numpy().tobytes())
+    for key, value in sorted(model.state_dict().items()):
+        h.update(key.encode())
+        if isinstance(value, torch.Tensor):
+            data = value.detach().cpu().contiguous()
+            h.update(str((data.dtype, tuple(data.shape))).encode())
+            h.update(data.reshape(-1).view(torch.uint8).numpy().tobytes())
+        elif isinstance(value, torch.Size):
+            h.update(b'torch.Size:')
+            h.update(repr(tuple(value)).encode())
+        elif isinstance(value, torch.device):
+            h.update(b'torch.device:')
+            h.update(str(value).encode())
+        elif value is None:
+            h.update(b'NoneType:None')
+        elif isinstance(value, (bool, int, float, str, torch.dtype)):
+            h.update(f'{type(value).__name__}:{value!r}'.encode())
+        else:
+            raise TypeError(f'Unsupported model state entry {key}: {type(value).__name__}')
     return h.hexdigest()
 
 

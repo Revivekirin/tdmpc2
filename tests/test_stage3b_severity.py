@@ -163,6 +163,26 @@ class SeverityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp,self.assertRaisesRegex(AssertionError,'Frozen'):
             evaluate_frozen(agent,cfg,make,bad,Path(tmp),{},lambda e:e.shift)
 
+    def test_model_digest_handles_tdmpc2_state_metadata(self):
+        class MetadataModel(torch.nn.Linear):
+            def __init__(self):
+                super().__init__(2,2)
+                self.batch_size=torch.Size([3,2])
+            def state_dict(self,*args,**kwargs):
+                state=super().state_dict(*args,**kwargs)
+                state['q_ensemble_batch_size']=self.batch_size
+                state['device']=torch.device('cpu')
+                state['optional']=None
+                state['dtype']=torch.float32
+                return state
+        model=MetadataModel()
+        first=model_digest(model)
+        self.assertEqual(first,model_digest(model))
+        model.batch_size=torch.Size([4,2])
+        self.assertNotEqual(first,model_digest(model))
+        with torch.no_grad():model.weight.add_(1)
+        self.assertNotEqual(first,model_digest(model))
+
     def test_hydra_backward_compatibility_and_identity_severity(self):
         from hydra import initialize_config_dir,compose
         from common.benchmark_config import cli_aliases,normalize
