@@ -8,3 +8,4 @@ stage3a:
 stage3b:
   run_id: stage3b-generalization
   resume: null
+  output_dir: null  # Optional exact destination for versioned severity runs.

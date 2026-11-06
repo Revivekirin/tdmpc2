@@ -68,7 +68,9 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
     budgets = [0] + list(settings['native_budgets'])
     identity = dict(checkpoint_sha256=checkpoint_hash, fixed_data_sha256=fixed_hash,
         controls={k: v for k, v in resolved.items() if k not in ('stage3a', 'stage3b', 'work_dir')})
-    output = output / f"set-{settings['seed_set']}" / settings['mode'] / str(cfg.seed)
+    output = (Path(hydra.utils.to_absolute_path(cfg.stage3b['output_dir']))
+              if cfg.stage3b.get('output_dir') else
+              output / f"set-{settings['seed_set']}" / settings['mode'] / str(cfg.seed))
     rows, episodes = [], []
     state = dict(native_steps=0, decisions=0, episode_index=0, obs=None, action=None,
                  episode_decisions=0, episode_native=0, episode_return=0.)
@@ -102,6 +104,7 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
         fixed_data_collection_native_steps=fixed_dataset['collection_native_steps'],
         fixed_data_collection_policy_decisions=fixed_dataset['collection_policy_decisions'],
         evaluation_budget_excluded=True, policy_eval_mode=True,
+        resumed_from=cfg.stage3b['resume'], optimizer_class='torch.optim.Adam' if adapter.optimizer else None,
         budget_timing='after native step, before decision commit and episode update; pending repeat preserved')
     (output / 'metadata.json').write_text(json.dumps(metadata, indent=2, default=json_default))
     def write_logs():
@@ -190,7 +193,7 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
         finally:
             wrapper.native_checkpoint = None
     write_logs()
-    (output / 'complete.json').write_text(json.dumps(metrics(), indent=2))
     torch.save(dict(predictor=agent.model._dynamics.state_dict(),
         optimizer=adapter.optimizer.state_dict() if adapter.optimizer else None,
         checkpoint_sha256=checkpoint_hash, fixed_data_sha256=fixed_hash, metrics=metrics()), output / 'adapted.pt')
+    (output / 'complete.json').write_text(json.dumps(metrics(), indent=2))

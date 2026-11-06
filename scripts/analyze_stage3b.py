@@ -229,7 +229,7 @@ def analyze(root, output, suite, allow_partial=False, recovered_root=None):
         '# Stage 3B results\n\nRun: '+validation['run_id']+'; status: '+validation['status']+'\n\n'
         'Figures read the aggregated CSV. Success and AUC tables use fractions; success plots use percent. '
         'Bands show sample SD across independent seed sets, not confidence intervals. '
-        'Three seed sets provide limited uncertainty estimates. Missing milestones are gaps; incomplete curves have no AUC. '
+        'A single seed set has no across-seed uncertainty estimate; small seed counts limit uncertainty estimates. Missing milestones are gaps; incomplete curves have no AUC. '
         'AUC differences are paired within seed sets. No recovery threshold was chosen.\n\n'
         'Evaluation/fixed-data costs are excluded from adaptation. Cumulative costs must not be summed across milestones; '
         'shared fixed data collection is counted once per shift/seed. Physical mass/inertia and friction changes '

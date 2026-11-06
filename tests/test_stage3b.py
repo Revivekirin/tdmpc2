@@ -114,13 +114,14 @@ class Stage3BTests(unittest.TestCase):
                     adapter=EpisodeAdapter(model,s,20,20)
                     cfg=SimpleNamespace(stage3a=s,stage3b={'resume':resume,'run_id':'SYNTHETIC'},seed=1,
                                         schedule={'type':'fixed'},horizon=2)
+                    if resume:cfg.stage3b['output_dir']=str(tmp/folder/'exact-severity-output')
                     resolved={'stage3a':s,'stage3b':cfg.stage3b,'task':'fixture',
                         'schedule':cfg.schedule,'dynamics_shift':{'parameter':{'type':'action_delay','shifted':1}}}
                     env=factory(cfg)
                     with patch.dict(sys.modules,{'envs.wrappers.dynamics_shift.logging':logging}):
                         run(agent,adapter,env,cfg,factory,deepcopy(model._dynamics),'fixture',dataset,
                             file_sha256(fixed),fixed,tmp/folder,resolved)
-                    return adapter,tmp/folder/'set-0'/mode/'1'
+                    return adapter,(Path(cfg.stage3b['output_dir']) if resume else tmp/folder/'set-0'/mode/'1')
                 full,full_path=execute('full')
                 rows=[json.loads(x) for x in (full_path/'evaluations.jsonl').read_text().splitlines()]
                 self.assertEqual([r['native_budget'] for r in rows],[0,1,3,5,9])
