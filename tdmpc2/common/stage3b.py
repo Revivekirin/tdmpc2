@@ -57,6 +57,7 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
     import hydra
 
     settings = cfg.stage3a
+    decision_ttt = settings['mode'] == 'decision_ttt'
     if not settings['native_budgets'] or fixed_dataset is None:
         raise ValueError('Stage 3B requires native budgets and shared fixed data.')
     shift = find_shift(env)
@@ -98,6 +99,9 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
             state['obs'] = state['obs'].cpu()
         if state['action'] is not None:
             state['action'] = state['action'].cpu()
+    if decision_ttt and output.exists():
+        from uuid import uuid4
+        output = output / 'versions' / uuid4().hex[:12]
     output.mkdir(parents=True, exist_ok=False)
     metadata = dict(config=resolved, **{k:v for k,v in identity.items() if k != 'controls'},
         active_method=settings['mode'], fixed_data_path=str(fixed_path),
@@ -105,7 +109,14 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
         fixed_data_collection_policy_decisions=fixed_dataset['collection_policy_decisions'],
         evaluation_budget_excluded=True, policy_eval_mode=True,
         resumed_from=cfg.stage3b['resume'], optimizer_class='torch.optim.Adam' if adapter.optimizer else None,
-        budget_timing='after native step, before decision commit and episode update; pending repeat preserved')
+        update_granularity=settings['update_granularity'],
+        effective_warmup_transitions=max(settings['warmup'], settings['batch_size']),
+        batch_size=settings['batch_size'], warmup_transitions=settings['warmup'],
+        timing_units={'update_compute_time': 'seconds', 'update_wall_time_ms': 'milliseconds'},
+        fixed_data_nominal_mse_status='unavailable: no nominal fixed dataset configured',
+        resume_kind='simulator_controller_planner_rng_replay_optimizer',
+        budget_timing=('after completed decision update and terminal bookkeeping; mid-repeat native milestones preserve pending repeat'
+                       if decision_ttt else 'after native step, before decision commit and episode update; pending repeat preserved'))
     (output / 'metadata.json').write_text(json.dumps(metadata, indent=2, default=json_default))
     def write_logs():
         for name, records in [('evaluations', rows), ('adaptation-episodes', episodes)]:
@@ -151,6 +162,11 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
         def native_checkpoint(record):
             state['native_steps'] += 1
             diagnostics.write(json.dumps(record, default=json_default)+'\n')
+            pending = wrapper.__dict__.get('_stage3b_pending')
+            if decision_ttt and pending and (pending['done'] or len(pending['records']) == 2):
+                # Commit the completed transition/update before measuring this budget.
+                # Mid-repeat budgets still use the existing exact snapshot path.
+                return
             if state['native_steps'] in budgets:
                 checkpoint()
                 diagnostics.flush()
@@ -175,7 +191,9 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
                     state['action'] = agent.act(state['obs'], t0=state['episode_decisions'] == 0, eval_mode=True, task=None)
                     state['decisions'] += 1
                 obs, reward, done, info = env.step(state['action'])
-                adapter.observe(state['obs'], state['action'], obs, len(info['shift_native_steps']))
+                update_record = adapter.observe(state['obs'], state['action'], obs, len(info['shift_native_steps']))
+                if decision_ttt:
+                    diagnostics.write(json.dumps(update_record, allow_nan=False)+'\n')
                 state.update(obs=obs, action=None, episode_decisions=state['episode_decisions']+1,
                     episode_native=state['episode_native']+len(info['shift_native_steps']),
                     episode_return=state['episode_return']+float(reward))
@@ -186,6 +204,10 @@ def run(agent, adapter, env, cfg, make_env, baseline, checkpoint_hash,
                         success=float(info['success']), episode_return=state['episode_return'],
                         episode_length=state['episode_decisions'], native_steps=state['episode_native'], **adapter.metrics()))
                     state['episode_index'] += 1
+                if (decision_ttt and state['native_steps'] in budgets
+                        and rows[-1]['native_budget'] != state['native_steps']):
+                    checkpoint()
+                    diagnostics.flush()
             # Resuming an already completed budget is a no-op, without committing
             # the pending terminal decision or creating an extra optimizer update.
         except BudgetPause:

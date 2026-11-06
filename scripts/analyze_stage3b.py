@@ -49,12 +49,23 @@ def aggregate(raw):
     return [dict(zip(keys, key), **mean_sd(values)) for key,values in sorted(groups.items())], by_seed
 
 
+def condition_name(suite, kind, magnitude):
+    return (f'{kind}={float(magnitude):g}' if sum(x['type'] == kind for x in suite['shifts']) > 1 else kind)
+
+
+def method_label(method):
+    return {'frozen': 'Frozen', 'dynamics_only': 'Episode-wise Dynamics-only TTT',
+            'decision_ttt': 'Decision-wise Dynamics-only TTT'}.get(method, method)
+
+
 def analyze(root, output, suite, allow_partial=False, recovered_root=None):
     import matplotlib
     matplotlib.use('Agg')
+    suite = dict(suite, methods=list(suite['methods']))
     raw, costs, issues, seen, references, datasets, seed_controls = [], [], [], {}, {}, {}, {}
     checkpoints, run_ids = set(), set()
     shared_controls, finished = None, set()
+    method_controls = {}
     expected_grid = suite['budgets']
     from stage3b_results import selected_results
     paths = (selected_results(root, recovered_root).values() if recovered_root is not None
@@ -67,13 +78,18 @@ def analyze(root, output, suite, allow_partial=False, recovered_root=None):
         settings = cfg['stage3a']
         shift = cfg['dynamics_shift']['parameter']
         method, group, name = meta['active_method'], settings['seed_set'], shift['type']
+        if method == 'decision_ttt' and method not in suite['methods']:
+            suite['methods'].append(method)
+        if settings['mode'] != method:
+            raise ValueError('Active method and resolved configuration disagree.')
+        name = condition_name(suite, name, shift['shifted'])
         key = name, method, group
         if key in seen:
             raise ValueError(f'Duplicate run: {key}')
         seen[key] = path
         if cfg['schedule']['type'] != 'fixed':
             raise ValueError('Stage 3B requires fixed schedules.')
-        candidates = {s['type']:s['magnitude'] for s in suite['shifts']}
+        candidates = {condition_name(suite, s['type'], s['magnitude']):s['magnitude'] for s in suite['shifts']}
         if name not in candidates or shift['shifted'] != candidates[name]:
             raise ValueError(f'Suite magnitude mismatch: {name}')
         if method not in suite['methods'] or group not in suite['seed_sets']:
@@ -82,7 +98,15 @@ def analyze(root, output, suite, allow_partial=False, recovered_root=None):
             raise ValueError('Budget grid differs from suite.')
         controls = {k:v for k,v in cfg.items() if k not in ('stage3a','stage3b','work_dir','dynamics_shift','shift')}
         controls['stage3a'] = {k:v for k,v in settings.items() if k not in (
-            'mode','seed_set','adaptation_seeds','evaluation_seeds','fixed_data_seeds','output','fixed_data_path')}
+            'mode','seed_set','adaptation_seeds','evaluation_seeds','fixed_data_seeds','output','fixed_data_path',
+            'update_granularity','updates_per_episode','updates_per_decision','update_every_decisions')}
+        timing = {k: settings.get(k) for k in ('update_granularity','updates_per_episode',
+                                             'updates_per_decision','update_every_decisions')}
+        if method in method_controls and method_controls[method] != timing:
+            raise ValueError('Update scheduling differs within a method.')
+        method_controls[method] = timing
+        if method == 'decision_ttt' and (timing['update_granularity'] != 'decision' or timing['updates_per_decision'] != 1):
+            raise ValueError('Invalid decision-wise scheduling metadata.')
         if shared_controls is not None and shared_controls != controls:
             raise ValueError('Checkpoint/planner/adaptation controls differ across shifts.')
         shared_controls = json.loads(json.dumps(controls))
@@ -171,7 +195,7 @@ def analyze(root, output, suite, allow_partial=False, recovered_root=None):
     for shift in suite['shifts']:
         for method in suite['methods']:
             for group in suite['seed_sets']:
-                if (shift['type'],method,group) not in seen:
+                if (condition_name(suite, shift['type'], shift['magnitude']),method,group) not in seen:
                     issues.append(f'Missing run: {(shift["type"],method,group)}')
     used = set()
     for seeds in seed_controls.values():
@@ -207,8 +231,8 @@ def analyze(root, output, suite, allow_partial=False, recovered_root=None):
     for shift in suite['shifts']:
         for method in suite['methods']:
             for metric in ('auc','initial_to_final','best_observed_success','auc_difference_vs_frozen','final_success_difference_vs_frozen'):
-                values = [r[metric] for r in auc_rows if r['shift_type']==shift['type'] and r['adaptation']==method and r[metric] is not None]
-                auc_summary.append(dict(shift_type=shift['type'], adaptation=method, metric=metric,
+                values = [r[metric] for r in auc_rows if r['shift_type']==condition_name(suite, shift['type'], shift['magnitude']) and r['adaptation']==method and r[metric] is not None]
+                auc_summary.append(dict(shift_type=condition_name(suite, shift['type'], shift['magnitude']), adaptation=method, metric=metric,
                     **(mean_sd(values) if values else dict(mean=None,std=None,n_seed_sets=0))))
     output.mkdir(parents=True, exist_ok=False)
     tables = output / 'tables'
@@ -249,7 +273,7 @@ def plot(tables, output, suite, validation):
     with (tables/'stage3b_auc_summary.csv').open() as stream:
         auc = list(csv.DictReader(stream))
     methods = suite['methods']
-    shifts = [s['type'] for s in suite['shifts']]
+    shifts = [condition_name(suite, s['type'], s['magnitude']) for s in suite['shifts']]
     colors = dict(zip(shifts, plt.get_cmap('tab10').colors[:len(shifts)]))
     if len(shifts)>10:
         colors = {s:plt.get_cmap('turbo')(i/max(1,len(shifts)-1)) for i,s in enumerate(shifts)}
@@ -261,7 +285,7 @@ def plot(tables, output, suite, validation):
     counts = sorted({int(r['n_seed_sets']) for r in summary})
     footer += ' | n=' + ','.join(map(str,counts))
     output.mkdir()
-    labels = {s['type']:s['type'].replace('_',' ')+' = '+str(s['magnitude']) for s in suite['shifts']}
+    labels = {condition_name(suite, s['type'], s['magnitude']):s['type'].replace('_',' ')+' = '+str(s['magnitude']) for s in suite['shifts']}
     handles = [Line2D([0],[0],color=colors[s],marker='o',label=labels[s]) for s in shifts]
     def panel(ax, method, metric, label, scale):
         for shift in shifts:
@@ -270,7 +294,7 @@ def plot(tables, output, suite, validation):
             std = np.array([float(points[b]['std'])*scale if b in points and points[b]['std'] else np.nan for b in budgets])
             ax.plot(budgets, means, color=colors[shift], marker='o', linewidth=2.3)
             ax.fill_between(budgets, means-std, means+std, color=colors[shift], alpha=.14)
-        ax.set(title=method.replace('_',' '), xlabel='Cumulative native environment steps', ylabel=label)
+        ax.set(title=method_label(method), xlabel='Cumulative native environment steps', ylabel=label)
         ax.set_xticks(budgets)
         ax.tick_params(axis='x', labelrotation=35)
         ax.set_xlim(0,budgets[-1])
@@ -289,7 +313,7 @@ def plot(tables, output, suite, validation):
         fig.savefig(output/(name+'.png'), dpi=220)
         fig.savefig(output/(name+'.pdf'))
         plt.close(fig)
-    ncols = min(2,len(methods))
+    ncols = len(methods)
     nrows = math.ceil(len(methods)/ncols)
     for spec, name in zip(METRICS, FIGURES):
         fig, axes = plt.subplots(nrows,ncols,figsize=(7*ncols,5*nrows+1),squeeze=False,sharey=True)
@@ -303,6 +327,29 @@ def plot(tables, output, suite, validation):
         for column,method in enumerate(methods):
             panel(axes[row,column],method,*spec)
     save(fig,'stage3b_comprehensive_overview','Stage 3B — Dynamics Shift Generalization & Adaptation Horizon')
+    if 'decision_ttt' in methods:
+        with (tables/'stage3b_raw_results.csv').open() as stream:
+            raw = list(csv.DictReader(stream))
+        for metric, xlabel, ylabel, xkey, filename in [
+            ('gradient_updates', 'Cumulative native environment steps', 'Gradient updates', 'budget_native_steps', 'gradient_updates_vs_native_steps'),
+            ('shifted_success', 'Cumulative gradient updates', 'Shifted success', 'gradient_updates', 'shifted_success_vs_gradient_updates'),
+            ('fixed_data_mse', 'Cumulative gradient updates', 'Fixed-data latent MSE', 'gradient_updates', 'predictor_mse_vs_gradient_updates'),
+            ('update_compute_time', 'Cumulative native environment steps', 'Cumulative optimizer wall time (seconds)', 'budget_native_steps', 'update_wall_time_vs_native_steps')]:
+            fig, axes = plt.subplots(1,len(methods),figsize=(7*len(methods),6),squeeze=False,sharey=True,sharex=True)
+            for ax,method in zip(axes.flat, methods):
+                for shift in shifts:
+                    for seed in suite['seed_sets']:
+                        points = defaultdict(list)
+                        for r in raw:
+                            if r['adaptation']==method and r['shift_type']==shift and int(r['seed_set'])==seed and r['metric']==metric and r['value']!='':
+                                points[(int(r['budget_native_steps']),float(r[xkey]))].append(float(r['value']))
+                        # Keep seed-level x/y pairs; markers only: no fabricated intermediate observations.
+                        ordered = sorted(points)
+                        ax.plot([p[1] for p in ordered], [statistics.mean(points[p]) for p in ordered],
+                                color=colors[shift], marker='o', linestyle='none', alpha=.7)
+                ax.set(title=method_label(method),xlabel=xlabel,ylabel=ylabel)
+                ax.grid(alpha=.2)
+            save(fig,filename,'Stage 3C — update efficiency (seed-level observations)')
     fig,ax=plt.subplots(figsize=(max(9,len(shifts)*2),6))
     width=.8/len(methods)
     hatches=['','///','xxx','...','\\\\','+++']
@@ -315,7 +362,7 @@ def plot(tables, output, suite, validation):
     ax.set(xticks=np.arange(len(shifts)),xticklabels=[s.replace('_',' ') for s in shifts],ylim=(0,1),
            ylabel='Normalized adaptation AUC (success fraction)',title='Stage 3B — Adaptation AUC')
     ax.legend(handles=[Patch(facecolor='white',edgecolor='black',hatch=hatches[j%len(hatches)],
-                             label=m.replace('_',' ')) for j,m in enumerate(methods)])
+                             label=method_label(m)) for j,m in enumerate(methods)])
     if validation['run_id'].startswith('SYNTHETIC'):
         ax.set_title('SYNTHETIC VALIDATION — NOT EXPERIMENTAL RESULTS\nStage 3B — Adaptation AUC')
     fig.text(.5,.02,footer,ha='center',fontsize=8)

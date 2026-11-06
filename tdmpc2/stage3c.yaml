@@ -1,0 +1,8 @@
+defaults:
+  - stage3b
+  - _self_
+stage3a:
+  mode: decision_ttt
+  update_granularity: decision
+  updates_per_decision: 1  # Authoritative cap; no redundant max setting.
+  update_every_decisions: 1

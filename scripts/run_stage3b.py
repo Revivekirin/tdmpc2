@@ -90,7 +90,8 @@ def commands(suite, checkpoint, output, phase, smoke=False):
         for seed_set in ([0] if smoke else suite['seed_sets']):
             methods = ['frozen'] if phase == 'collect' else suite['methods']
             for method in methods:
-                command = [sys.executable, 'tdmpc2/adapt_shift.py', '--config-name', 'stage3b',
+                command = [sys.executable, 'tdmpc2/adapt_shift.py', '--config-name',
+                    'stage3c' if method == 'decision_ttt' else 'stage3b',
                     f"task={suite['task']}", f"model_size={suite['model_size']}",
                     f"episodic={str(suite['episodic']).lower()}", f'checkpoint={checkpoint}',
                     f'dynamics_shift={name}', 'schedule=fixed',
@@ -99,6 +100,13 @@ def commands(suite, checkpoint, output, phase, smoke=False):
                     f'stage3b.run_id={output.name}', f'stage3a.output={output}/runs/{name}',
                     f'stage3a.fixed_data_path={output}/data/{name}/set-{seed_set}.pt',
                     'stage3a.native_budgets='+json.dumps(([5,80,240] if smoke else suite['budgets'][1:]), separators=(',',':'))]
+                if suite.get('severity_layout'):
+                    from stage3b2_audit import value_label
+                    label = value_label(shift['magnitude'])
+                    dataset = shift.get('fixed_data_path', f'{output}/data/{name}/{label}/set-{seed_set}.pt')
+                    command = [arg for arg in command if not arg.startswith('stage3a.fixed_data_path=')]
+                    command += [f'stage3a.fixed_data_path={dataset}',
+                        f'stage3b.output_dir={output}/runs/{name}/set-{seed_set}/{method}/{label}']
                 if phase == 'collect':
                     command += ['stage3a.fixed_data_collect=true']
                 if smoke:
@@ -149,6 +157,8 @@ if __name__ == '__main__':
                          'no output files have been created.')
         args.checkpoint = str(checkpoint.resolve())
     planned = list(commands(suite, args.checkpoint, output, args.phase, args.smoke))
+    if suite.get('severity_layout') and args.continue_suite:
+        parser.error('Severity-layout continuation uses explicit stage3b.resume and a new output_dir.')
     skipped, archives = [], []
     if args.continue_suite:
         planned, skipped, archives = remaining_commands(planned, suite, output, args.recovered_root, args.checkpoint)

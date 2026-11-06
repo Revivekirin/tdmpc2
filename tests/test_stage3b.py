@@ -14,6 +14,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
 from test_stage3a import Model, settings, data
 from common.stage3a import EpisodeAdapter, equal_state
+from common.decision_ttt import DecisionAdapter
 from common.stage3b import run, resumable_repeat
 from common.benchmark_config import normalize
 from benchmark_imports import package
@@ -93,13 +94,15 @@ class Stage3BTests(unittest.TestCase):
 
     def test_continuous_and_resumed_mid_repeat_and_terminal(self):
         torch.set_num_threads(1)
-        for mode in ('frozen','dynamics_only'):
+        for mode in ('frozen','dynamics_only','decision_ttt'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
                 tmp=Path(tmp)
                 torch.manual_seed(6)
                 model=Model(); model._dynamics[0]=torch.nn.Linear(4,2)
                 initial=model.state_dict()
                 s=settings(mode)
+                if mode == 'decision_ttt':
+                    s.update(update_granularity='decision', updates_per_decision=1, update_every_decisions=1)
                 s.update(batch_size=1,warmup=1,updates_per_episode=2,seed_set=0,
                          native_budgets=[1,3,5,9],fixed_data_seeds=[30,31],fixed_data_path=str(tmp/'fixed.pt'))
                 transitions=[(o,torch.cat([a,torch.zeros(1)]),n) for o,a,n in data(2)]
@@ -111,7 +114,7 @@ class Stage3BTests(unittest.TestCase):
                 def execute(folder,resume=None):
                     model=Model(); model._dynamics[0]=torch.nn.Linear(4,2); model.load_state_dict(initial)
                     agent=Agent(model)
-                    adapter=EpisodeAdapter(model,s,20,20)
+                    adapter=(DecisionAdapter if mode == 'decision_ttt' else EpisodeAdapter)(model,s,20,20)
                     cfg=SimpleNamespace(stage3a=s,stage3b={'resume':resume,'run_id':'SYNTHETIC'},seed=1,
                                         schedule={'type':'fixed'},horizon=2)
                     if resume:cfg.stage3b['output_dir']=str(tmp/folder/'exact-severity-output')
@@ -126,21 +129,29 @@ class Stage3BTests(unittest.TestCase):
                 rows=[json.loads(x) for x in (full_path/'evaluations.jsonl').read_text().splitlines()]
                 self.assertEqual([r['native_budget'] for r in rows],[0,1,3,5,9])
                 # Native 3 terminates an episode, but its update is still pending.
-                self.assertEqual(rows[2]['adaptation_episodes'],0)
-                self.assertEqual(rows[2]['gradient_update_steps'],0)
+                self.assertEqual(rows[2]['adaptation_episodes'],1 if mode == 'decision_ttt' else 0)
+                self.assertEqual(rows[2]['gradient_update_steps'],2 if mode == 'decision_ttt' else 0)
                 self.assertEqual(rows[3]['adaptation_episodes'],1)
                 for budget in (1,3,5):
                     resumed,path=execute(f'resume{budget}',str(full_path/f'resume-budget-{budget}.pt'))
                     a,b=full.state_dict(),resumed.state_dict()
                     a.pop('update_compute_time'); b.pop('update_compute_time')
+                    if mode == 'decision_ttt':
+                        a['last_decision'].pop('update_wall_time_ms'); b['last_decision'].pop('update_wall_time_ms')
                     self.assertTrue(equal_state(a,b))
                     self.assertEqual(json.loads((path/'complete.json').read_text())['adaptation_native_steps'],9)
-                self.assertEqual(full.gradient_steps,0 if mode=='frozen' else 4)
-                self.assertEqual(full.transitions,5) # Last terminal decision remains pending.
-                self.assertEqual(full.native_steps,8)
-                self.assertEqual(full.episodes,2)
-                self.assertTrue(full.in_episode)
-                with self.assertRaises(FileExistsError): execute('full')
+                self.assertEqual(full.gradient_steps,0 if mode=='frozen' else 6 if mode=='decision_ttt' else 4)
+                self.assertEqual(full.transitions,6 if mode=='decision_ttt' else 5)
+                self.assertEqual(full.native_steps,9 if mode=='decision_ttt' else 8)
+                self.assertEqual(full.episodes,3 if mode=='decision_ttt' else 2)
+                self.assertEqual(full.in_episode, mode!='decision_ttt')
+                if mode != 'decision_ttt':
+                    with self.assertRaises(FileExistsError): execute('full')
+                else:
+                    logs=[json.loads(line) for line in (full_path/'diagnostics.jsonl').read_text().splitlines()]
+                    decisions=[r for r in logs if r.get('record_type')=='decision_update']
+                    self.assertEqual([r['policy_decision_index'] for r in decisions],list(range(1,7)))
+                    self.assertEqual([r['gradient_updates'] for r in decisions],list(range(1,7)))
 
     def test_auc_uses_nonuniform_spacing(self):
         self.assertAlmostEqual(normalized_auc([0,1,4],[0,1,1]),.875)

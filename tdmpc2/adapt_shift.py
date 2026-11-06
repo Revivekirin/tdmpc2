@@ -275,7 +275,11 @@ def main(cfg):
         agent = TDMPC2(cfg)
         agent.load(str(checkpoint))
         baseline = deepcopy(agent.model._dynamics).requires_grad_(False).eval()
-        adapter = EpisodeAdapter(agent.model, settings, cfg.consistency_coef, cfg.grad_clip_norm, cfg.seed)
+        from common.decision_ttt import DecisionAdapter
+        adapter_class = DecisionAdapter if settings['mode'] == 'decision_ttt' else EpisodeAdapter
+        if settings['mode'] == 'decision_ttt' and cfg.get('stage3b') is None:
+            raise ValueError('Decision TTT requires the Stage 3B runner (--config-name stage3c).')
+        adapter = adapter_class(agent.model, settings, cfg.consistency_coef, cfg.grad_clip_norm, cfg.seed)
         shift = find_shift(env)
         shift.analysis_capture_history = True
         checkpoint_hash = file_sha256(checkpoint)

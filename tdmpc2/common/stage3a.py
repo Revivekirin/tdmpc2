@@ -44,9 +44,15 @@ def equal_state(a, b):
 
 
 def validate(settings):
-    if settings['mode'] not in ('frozen', 'dynamics_only'):
-        raise NotImplementedError('Stage 3A supports frozen and dynamics_only; joint_rl and dynamics_value are reserved.')
-    for key, expected in [('update_granularity', 'episode'), ('consistency_steps', 1),
+    if settings['mode'] not in ('frozen', 'dynamics_only', 'decision_ttt'):
+        raise NotImplementedError('Supported modes: frozen, dynamics_only, decision_ttt.')
+    granularity = 'decision' if settings['mode'] == 'decision_ttt' else 'episode'
+    if granularity == 'decision':
+        if settings.get('updates_per_decision') != 1 or type(settings.get('updates_per_decision')) is not int:
+            raise ValueError('updates_per_decision must be 1; this is the sole update cap.')
+        if type(settings.get('update_every_decisions')) is not int or settings['update_every_decisions'] <= 0:
+            raise ValueError('update_every_decisions must be a positive integer.')
+    for key, expected in [('update_granularity', granularity), ('consistency_steps', 1),
                           ('action_input', 'commanded'), ('replay_source', 'fresh_shifted'),
                           ('sampling', 'uniform_without_replacement')]:
         if settings[key] != expected:
@@ -83,7 +89,7 @@ class EpisodeAdapter:
         self.device = next(model.parameters()).device
         model.requires_grad_(False)
         self.params = list(model._dynamics.parameters())
-        if settings['mode'] == 'dynamics_only':
+        if settings['mode'] in ('dynamics_only', 'decision_ttt'):
             model._dynamics.requires_grad_(True)
             self.optimizer = torch.optim.Adam(self.params, lr=settings['lr'])
         else:
@@ -128,13 +134,17 @@ class EpisodeAdapter:
         """Separate API for future timing policies; currently only legal between episodes."""
         if self.evaluating or self.in_episode:
             raise RuntimeError('Updates are prohibited inside episodes and held-out evaluation.')
+        return self._optimizer_steps(self.settings['updates_per_episode'])
+
+    def _optimizer_steps(self, count):
+        """Shared one-step commanded-action objective and Adam implementation."""
         if self.optimizer is None or len(self.replay) < max(self.settings['warmup'], self.settings['batch_size']):
             return self.last_metrics
         metrics = []
         if self.device.type == 'cuda':
             torch.cuda.synchronize(self.device)
         started = time.perf_counter()
-        for _ in range(self.settings['updates_per_episode']):
+        for _ in range(count):
             batch = self.rng.sample(list(self.replay), self.settings['batch_size'])
             before = [p.detach().clone() for p in self.params]
             self.optimizer.zero_grad(set_to_none=True)
