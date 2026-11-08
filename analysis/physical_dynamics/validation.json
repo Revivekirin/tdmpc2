@@ -1,0 +1,9 @@
+{
+  "command_probe": "PASS: 32 delay / 5 gain",
+  "script_syntax": "PASS",
+  "local_document_links": "PASS",
+  "figures": "6 PNG + 6 PDF",
+  "simulator_response": "NOT_RUN",
+  "latest_server_revision": "UNVERIFIED",
+  "original_model_and_results": "UNMODIFIED"
+}

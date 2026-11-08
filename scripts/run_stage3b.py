@@ -170,7 +170,7 @@ if __name__ == '__main__':
         effective_suite = dict(suite, run_id=output.name)
         if args.smoke:
             effective_suite.update(shifts=suite['shifts'][:1], seed_sets=[0], budgets=[0,5,80,240])
-        prefix = args.phase + ('-continue-' + uuid4().hex[:12] if args.continue_suite else '')
+        prefix = args.phase + ('-continue-' if args.continue_suite else '-') + uuid4().hex[:12]
         with (output / 'configs' / (prefix + '-suite.json')).open('x') as stream:
             json.dump(effective_suite, stream, indent=2)
         with (output / 'configs' / (prefix + '-commands.json')).open('x') as stream:
