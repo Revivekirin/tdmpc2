@@ -1,6 +1,6 @@
 # Controlled physics → nominal TD-MPC2 → frozen severity evaluation
 
-The new runners are `scripts/validate_physics.py`, `scripts/train_nominal.py`, `scripts/evaluate_frozen.py` and `scripts/plot_results.py`. Configurations are `configs/physical_validation.json`, `configs/train_nominal.yaml`, and `configs/frozen_sweep.yaml`. Experiment-only helpers implement bookkeeping, evaluation and checkpoint packaging, not learning algorithms. The original agent, WorldModel, MPC, optimizers, losses, replay Buffer and OnlineTrainer.to_td are reused. `envs.nsgym.make_env` is called explicitly. No original TD-MPC2 source, environment factory, adaptation code or archive was changed.
+The new runners are `scripts/validate_physics.py`, `scripts/train_nominal.py`, `scripts/evaluate_frozen.py` and `scripts/plot_results.py`. Configurations are `configs/physical_validation.json`, `configs/train_nominal.yaml`, and `configs/frozen_sweep.yaml`. Experiment-only helpers implement bookkeeping, evaluation and checkpoint packaging, not learning algorithms. The original agent, WorldModel, MPC, optimizers, losses, replay Buffer and OnlineTrainer.to_td are reused. `envs.nsgym.make_env` is called explicitly. The original environment factory, adaptation code and archive are unchanged. A subsequently reproduced Ensemble meta-template device-transfer defect required the narrow shared-layer compatibility fix documented at the end of this file.
 
 ## Current status
 
@@ -113,3 +113,53 @@ For different training budgets, edit the explicit YAML before running; checkpoin
 - `/private/tmp/tdmpc2-nsgym-venv/bin/python -m pytest tests -q` — 123 passed, 4 skipped, 1 unchanged failure; 148 subtests passed.
 
 The separate NS-Gym environment gained tensordict 0.14.3 and torchrl 0.14.1; existing pinned NS-Gym/Gymnasium/NumPy/MuJoCo were not upgraded. The original agent/replay/trainer imports pass there. Matplotlib reports an unwritable default cache location and uses a temporary cache; plots were generated and visually inspected. Results remain local and git-ignored; preserve the complete result directories in research backups. No full training or full frozen sweep was launched, and no checkpoint was fabricated.
+
+## server4: driver 535.230.02 and PyTorch CUDA build
+
+The reported server has an RTX A5000 but PyTorch 2.14.0+cu130 cannot initialize CUDA with driver 535.230.02. The generic `torch==2.14.0` pin did not constrain the CUDA build; it is insufficient for this server. `nvidia-smi` showing CUDA 12.2 reports the driver's supported CUDA level, not the runtime bundled with PyTorch.
+
+The [official CUDA 12.6 wheel index](https://download.pytorch.org/whl/cu126/torch/) provides PyTorch 2.14.0+cu126 for Python 3.11/Linux x86_64. Driver 535 falls in [NVIDIA's CUDA 12.x minor compatibility range](https://docs.nvidia.com/deploy/cuda-compatibility/minor-version-compatibility.html). This has feature limitations, particularly for PTX/JIT paths; keep the pipeline's existing `compile=false`. This build is a compatibility candidate, not a claim that server-side optimizer tests have passed.
+
+Run in the separate `tdmpc2-nsgym` environment:
+
+```bash
+python -m pip install --upgrade 'torch==2.14.0+cu126' --index-url https://download.pytorch.org/whl/cu126
+python -m pip install -r experiments/nsgym/requirements-server4-cu126.txt
+python -m pip check
+python - <<'PY'
+import torch
+print('PyTorch:', torch.__version__)
+print('Bundled CUDA:', torch.version.cuda)
+assert torch.cuda.is_available(), 'CUDA initialization still fails'
+print('GPU:', torch.cuda.get_device_name(0))
+x = torch.randn(256, 256, device='cuda')
+y = x @ x.T
+assert torch.isfinite(y).all()
+torch.cuda.synchronize()
+print('CUDA allocation/matmul: PASS')
+PY
+python experiments/nsgym/scripts/train_nominal.py --smoke --output results/nsgym/server4-cu126-smoke-01
+```
+
+Use a new smoke output directory on retries. No server driver was changed, no legacy environment was upgraded, and these server-side commands have not been executed from the local Mac. Subsequent installs should use the server-specific requirements file to retain the CUDA build constraint.
+
+## Reproduced meta-template device-transfer defect
+
+After server4 passed CUDA allocation/matmul with cu126, agent construction failed at `WorldModel.to(cuda)`. This was reproduced locally with `WorldModel.to('cpu')`: `_Qs.module`, `_detach_Qs.module`, and `_target_Qs.module` exposed registered meta placeholders. The previous CPU forward test did not perform device transfer or exercise the Q ensemble, so it missed this defect.
+
+The minimal compatibility fix is in `tdmpc2/common/layers.py`: the Ensemble execution template is retained as an unregistered attribute; real stacked weights remain registered in `params`. An explicit `train()` override propagates dropout mode to the template, including target evaluation mode. The vmap/to_module evaluation and all learning losses, optimizers, MPC logic and Polyak update formulas are unchanged. This follows the separation between stacked ensemble parameters and the execution template described by [TensorDict](https://docs.pytorch.org/tensordict/stable/cookbook.html). Do not apply `to_empty()` to the whole world model: that would allocate uninitialized storage rather than restore learned weights.
+
+Regression tests compare ensemble predictions, parameter gradients and an Adam step against independent reference networks; verify CPU device transfer, dropout modes, detached-weight aliasing, target-weight independence/Polyak updates, and real checkpoint save/load. The world-model CPU test now explicitly calls `.to('cpu')`. This is a demonstrated compatibility defect justifying the narrow shared-layer change under the task constraints; no WorldModel/Agent training logic was refactored.
+
+Checkpoint state dictionaries no longer include stateless `*.module.*` meta placeholders. New checkpoint roundtrips are tested. A historical checkpoint containing those placeholder keys may need a separately reviewed conversion before strict loading; no automatic checkpoint rewrite is performed. No NS-Gym trained checkpoint was produced before this failure.
+
+After syncing the corrected source and tests to server4, use a fresh output directory:
+
+```bash
+python -m pytest experiments/nsgym/tests/test_ensemble_device.py -q
+python experiments/nsgym/scripts/train_nominal.py --smoke --output results/nsgym/server4-cu126-smoke-02
+```
+
+Local focused checks: 7 passed, 1 CUDA skip. This fixes the locally reproduced initialization error; the full CUDA training smoke still needs to be rerun on server4.
+
+Full post-fix NS-Gym suite: **30 passed, 1 CUDA-dependent skip** (`validation/pipeline/meta-fix-nsgym-tests.txt`). Legacy suite: **123 passed, 4 skipped, the same 1 pre-existing failure** (`validation/pipeline/meta-fix-legacy-tests.txt`). The focused patch is `validation/pipeline/ensemble-meta-fix.patch`; apply it only to a server checkout that still contains the original template registration.

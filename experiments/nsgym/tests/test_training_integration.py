@@ -49,7 +49,7 @@ def test_real_world_model_cpu_forward_compatibility():
     c=config_from_file(ROOT/'experiments/nsgym/configs/train_nominal.yaml',smoke=True)
     cfg,env=build(c)
     try:
-        model=WorldModel(cfg)
+        model=WorldModel(cfg).to('cpu')
         observation=env.reset().unsqueeze(0)
         with torch.no_grad():
             latent=model.encode(observation,None)

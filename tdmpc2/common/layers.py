@@ -15,12 +15,22 @@ class Ensemble(nn.Module):
 		# combine_state_for_ensemble causes graph breaks
 		self.params = from_modules(*modules, as_module=True)
 		with self.params[0].data.to("meta").to_module(modules[0]):
-			self.module = deepcopy(modules[0])
+			# This is a stateless execution template, not a second set of
+			# trainable weights. Registering it makes Module.to/optimizers walk
+			# its meta placeholders. Real ensemble weights live in self.params
+			# and are installed temporarily by _call.
+			self.__dict__['module'] = deepcopy(modules[0])
 		self._repr = str(modules[0])
 		self._n = len(modules)
 
 	def __len__(self):
 		return self._n
+
+	def train(self, mode=True):
+		super().train(mode)
+		# The unregistered template still needs dropout mode propagation.
+		self.module.train(mode)
+		return self
 
 	def _call(self, params, *args, **kwargs):
 		with params.to_module(self.module):
