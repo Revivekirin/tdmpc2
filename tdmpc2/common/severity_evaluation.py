@@ -94,6 +94,9 @@ class NativeTrajectory:
         if self.log_eef:
             xyz,q=measured_pose(native)
             self.initial.update(initial_eef_xyz=xyz.tolist(),initial_eef_quaternion_wxyz=q.tolist())
+            if hasattr(native, 'obj') and hasattr(native, 'goal_pos'):
+                self.initial['initial_object_goal_distance_m'] = float(np.linalg.norm(
+                    np.asarray(native.obj.pose.p)-np.asarray(native.goal_pos)))
         if self.shift.parameter['type']=='action_delay' and len(self.shift.queue):
             raise AssertionError('Delay queue not reset at episode boundary.')
 
@@ -133,6 +136,10 @@ class NativeTrajectory:
                  observation=np.asarray(observation).copy(),queue_length=effective.get('queue_length',-1))
         if self.log_eef:
             row['eef_xyz'],row['eef_quaternion_wxyz']=measured_pose(shift.unwrapped)
+            native = shift.unwrapped
+            if hasattr(native, 'obj') and hasattr(native, 'goal_pos'):
+                row['object_goal_distance_m'] = float(np.linalg.norm(
+                    np.asarray(native.obj.pose.p)-np.asarray(native.goal_pos)))
         self.rows.append(row)
 
     def save(self, path, metadata, result):

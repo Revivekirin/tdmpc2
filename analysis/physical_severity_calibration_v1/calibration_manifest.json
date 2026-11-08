@@ -1,0 +1,62 @@
+{
+  "protocol": "physical-severity-calibration-v1",
+  "candidate_class": "exploratory_engineering_heuristic",
+  "candidates": {
+    "action_delay": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "action_gain": [
+      1.0,
+      0.9,
+      0.7,
+      0.5,
+      0.3
+    ],
+    "object_mass": [
+      1.0,
+      1.5,
+      2,
+      3
+    ],
+    "contact_friction": [
+      1.0,
+      0.7,
+      0.5,
+      0.3
+    ]
+  },
+  "nominal": {
+    "action_gain": 1.0,
+    "action_delay": 0,
+    "object_mass": 1.0,
+    "contact_friction": 1.0
+  },
+  "calibration_set_id": 70,
+  "calibration_seeds": [
+    704000,
+    704001,
+    704002
+  ],
+  "final_benchmark_seeds": [
+    804000,
+    804001,
+    804002,
+    804003,
+    804004,
+    804005,
+    804006,
+    804007,
+    804008,
+    804009
+  ],
+  "checkpoint": "checkpoints/maniskill2/pick-cube-1.pt",
+  "task": "pick-cube",
+  "max_native_steps": 40,
+  "motion_detection_m": 1e-05,
+  "detection_note": "Motion onset is first measured displacement beyond 10 micrometers; diagnostic threshold, not severity acceptance or causal latency.",
+  "minimum_calibration_seeds": 3,
+  "selection_reviews": {}
+}

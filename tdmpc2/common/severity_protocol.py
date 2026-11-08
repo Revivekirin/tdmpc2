@@ -6,6 +6,8 @@ import re
 from pathlib import Path
 
 DEFAULTS = dict(action_delay=1, action_gain=.7, object_mass=1.5, contact_friction=.5)
+# Historical engineering-heuristic exploration grid, NOT calibrated benchmark severities.
+# Keep these values unchanged for compatibility with existing experiment artifacts.
 PILOT = dict(action_delay=[0,1,2,3], action_gain=[.9,.7,.5,.3],
              object_mass=[1,1.5,2,3], contact_friction=[1,.7,.5,.3])
 PROTOCOL = 'stage3b-1-frozen-v1'

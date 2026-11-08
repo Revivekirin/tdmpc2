@@ -1,0 +1,24 @@
+{
+  "protocol": "physical-severity-calibration-v1",
+  "status": "PENDING_MEASUREMENTS_OR_REVIEW",
+  "ready_for_benchmark": false,
+  "calibration_seeds": [
+    704000,
+    704001,
+    704002
+  ],
+  "final_benchmark_seeds": [
+    804000,
+    804001,
+    804002,
+    804003,
+    804004,
+    804005,
+    804006,
+    804007,
+    804008,
+    804009
+  ],
+  "selected_severities": {},
+  "manifest_sha256": "6ea47a580ed60abbe9bb960d527b49331353015759665f5ab027e46980396637"
+}

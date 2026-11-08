@@ -82,6 +82,7 @@ def main():
     import gym
     import mani_skill2.envs
     from envs.wrappers.dynamics_shift.factory import make_shift
+    from common.severity_protocol import source_digest
     def git(*cmd):
         return subprocess.check_output(['git','-C',str(root),*cmd],text=True).strip()
     meta = dict(git_head=git('rev-parse','HEAD'),git_status=git('status','--short'),
@@ -92,6 +93,7 @@ def main():
                 versions={k:importlib.metadata.version(k) for k in ['mani-skill2','sapien','gym','numpy']})
     meta['source_sha256'] = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
                             for p in (root/'tdmpc2/envs/wrappers/dynamics_shift').glob('*.py')}
+    meta['repository_source_sha256'] = source_digest(root)
     (args.output/'metadata.json').write_text(json.dumps(meta,indent=2,allow_nan=False)+'\n')
     baseline_initial = None
     for value in args.values:
