@@ -1,0 +1,63 @@
+...F....                                                                 [100%]
+=================================== FAILURES ===================================
+________ MechanismTests.test_episode_artifacts_boundary_rng_and_frozen _________
+
+self = <test_mechanism_analysis.MechanismTests testMethod=test_episode_artifacts_boundary_rng_and_frozen>
+
+    def test_episode_artifacts_boundary_rng_and_frozen(self):
+        a = agent(load_planner())
+        cfg = a.cfg
+        cfg.analysis=options(); cfg.checkpoint='fake.pt'; cfg.task='fake'
+        cfg.dynamics_shift={'parameter':{'type':'action_delay'}}; cfg.schedule={'type':'fixed'}
+        space=types.SimpleNamespace(shape=(2,),low=-np.ones(2),high=np.ones(2))
+        digest=model_checksum(a.model)
+        with tempfile.TemporaryDirectory() as path:
+>           analysis=MechanismAnalysis(cfg,a,path,space)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/private/tmp/tdmpc2-before-reorganization/tests/test_mechanism_analysis.py:97: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <common.mechanism_analysis.MechanismAnalysis object at 0x1579dd510>
+cfg = namespace(horizon=3, action_dim=2, num_samples=12, num_pi_trajs=3, max_std=1.0, min_std=0.05, iterations=3, num_elites... checkpoint='fake.pt', task='fake', dynamics_shift={'parameter': {'type': 'action_delay'}}, schedule={'type': 'fixed'})
+agent = <TDMPC2 object at 0x16837efd0>
+path = '/var/folders/xn/vxzpxn1j1h59yv0c7p81jtnc0000gn/T/tmpmml_fua2'
+action_space = namespace(shape=(2,), low=array([-1., -1.]), high=array([1., 1.]))
+
+    def __init__(self, cfg, agent, path, action_space):
+        self.cfg, self.agent, self.options = cfg, agent, cfg.analysis
+        self.path = Path(path) / 'mechanism'
+        self.path.mkdir()
+        if agent.model.training:
+            raise ValueError('Frozen diagnostics require model.eval()')
+        self.digest = model_checksum(agent.model)
+        self.compatible = (tuple(action_space.shape) == (cfg.action_dim,)
+                           and np.all(action_space.low == -1) and np.all(action_space.high == 1))
+        self.tables = {}
+        self.groups = defaultdict(list)
+        self.archive = zipfile.ZipFile(self.path / 'planner_candidates.npz', 'w', compression=zipfile.ZIP_DEFLATED)
+        self.closed = False
+        self.history_groups = defaultdict(list)
+        self.episode_summaries = []
+        self.last_change = None
+        self.write_json('manifest.json', dict(schema_version=1, analysis=cfg.analysis,
+            checkpoint=str(cfg.checkpoint), task=cfg.task, discount=float(agent.discount), episodic=cfg.episodic,
+            mpc=cfg.mpc,
+>           action_mode=('eval_mode=True (MPC remains stochastic)' if cfg.evaluation.get('policy_eval_mode', False)
+                                                                      ^^^^^^^^^^^^^^
+                         else 'stochastic (evaluate_shift calls eval_mode=False)'),
+            action_space_compatible=self.compatible, model_transition_unit='policy decision, up to 2 native steps',
+            actual_score='captured original sampled terminal policy action and random Q-head pair',
+            diagnostic_score='mean terminal policy action and mean of all decoded Q heads',
+            candidate_storage='first bounded IDs plus selected final candidate; rankings use all candidates',
+            model_sha256_before=self.digest,
+            relative_error_definition='squared L2 residual / max(squared L2 observed latent, 1e-12)',
+            elapsed_shift_clock='native steps at end of decision since most recent parameter change',
+            truncated_return='observed finite continuation, not complete Q target',
+            previous_actions_window=5))
+E       AttributeError: 'types.SimpleNamespace' object has no attribute 'evaluation'
+
+/private/tmp/tdmpc2-before-reorganization/tdmpc2/common/mechanism_analysis.py:104: AttributeError
+=========================== short test summary info ============================
+FAILED ../../../../private/tmp/tdmpc2-before-reorganization/tests/test_mechanism_analysis.py::MechanismTests::test_episode_artifacts_boundary_rng_and_frozen
+1 failed, 7 passed in 1.04s
