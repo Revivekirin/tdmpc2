@@ -50,3 +50,7 @@ python3 archive/legacy_maniskill2/verify_archive.py
 ```
 
 `MUJOCO_GL=glfw` is for macOS; use your existing renderer setting on the Linux simulator host. Real ManiSkill2 regression tests remain opt-in with `TD_MPC2_TEST_MANISKILL=1`; checkpoint tests additionally require CUDA and `TD_MPC2_MECHANISM_CHECKPOINTS`. See `VALIDATION.md` for the exact limitations and known baseline failure.
+
+## Controlled physics and training pipeline
+
+See [PIPELINE.md](PIPELINE.md) for paired physical validation, the separate nominal training entry point, frozen checkpoint evaluation, all execution commands, and the current CUDA blocker. Physical validation passes; learned-controller robustness has not been evaluated.

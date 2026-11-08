@@ -1,0 +1,10 @@
+usage: plot_results.py [-h] --kind {physical,training,frozen} --input INPUT
+                       --output OUTPUT
+
+Regenerate plots/tables into a NEW directory; leave source results untouched.
+
+options:
+  -h, --help            show this help message and exit
+  --kind {physical,training,frozen}
+  --input INPUT
+  --output OUTPUT

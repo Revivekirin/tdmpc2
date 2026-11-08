@@ -1,0 +1,13 @@
+Traceback (most recent call last):
+  File "/Users/jihyekim/Desktop/tdmpc2/experiments/nsgym/scripts/train_nominal.py", line 115, in <module>
+    if __name__=='__main__':main()
+                            ^^^^^^
+  File "/Users/jihyekim/Desktop/tdmpc2/experiments/nsgym/scripts/train_nominal.py", line 113, in main
+    print(train(config,args.output or config['output']))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jihyekim/Desktop/tdmpc2/experiments/nsgym/scripts/train_nominal.py", line 15, in train
+    require_cuda(config['device'])
+  File "/Users/jihyekim/Desktop/tdmpc2/experiments/nsgym/scripts/training_support.py", line 21, in require_cuda
+    if not torch.cuda.is_available():raise RuntimeError('BLOCKED: CUDA is unavailable. Run the unchanged TD-MPC2 training/evaluation on a CUDA host.')
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: BLOCKED: CUDA is unavailable. Run the unchanged TD-MPC2 training/evaluation on a CUDA host.
