@@ -1,0 +1,8 @@
+{
+  "mode": "fixed",
+  "mass_scale": 1.5,
+  "switch_step": 10,
+  "restore_step": 20,
+  "seed": 17,
+  "max_episode_steps": 40
+}

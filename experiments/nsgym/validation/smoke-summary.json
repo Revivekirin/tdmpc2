@@ -1,0 +1,71 @@
+{
+  "abrupt-validation": {
+    "transitions": 40,
+    "max_observation_delta_from_nominal": 7.4274165505609195,
+    "mass_at_transition": {
+      "0": 6.25020920502092,
+      "9": 6.25020920502092,
+      "10": 9.37531380753138,
+      "19": 9.37531380753138,
+      "20": 9.37531380753138,
+      "39": 9.37531380753138
+    },
+    "artifact_sha256": "8265d89a2b90a999d73b8adffc7de20b528feacb69cb65c5663e00c925813b8f"
+  },
+  "reversible-validation": {
+    "transitions": 40,
+    "max_observation_delta_from_nominal": 7.4274165505609195,
+    "mass_at_transition": {
+      "0": 6.25020920502092,
+      "9": 6.25020920502092,
+      "10": 9.37531380753138,
+      "19": 9.37531380753138,
+      "20": 6.25020920502092,
+      "39": 6.25020920502092
+    },
+    "artifact_sha256": "3dba80b3f240c874284594621917a85c5ab95342c582dd613e0399acef29ed20"
+  },
+  "nominal-validation": {
+    "transitions": 40,
+    "max_observation_delta_from_nominal": 0.0,
+    "mass_at_transition": {
+      "0": 6.25020920502092,
+      "9": 6.25020920502092,
+      "10": 6.25020920502092,
+      "19": 6.25020920502092,
+      "20": 6.25020920502092,
+      "39": 6.25020920502092
+    },
+    "artifact_sha256": "de8ed9dbe350809b83676119b2f991210ae617ce7087688d2f5a120d70b5668e"
+  },
+  "fixed-validation": {
+    "transitions": 40,
+    "max_observation_delta_from_nominal": 6.292953108200187,
+    "mass_at_transition": {
+      "0": 9.37531380753138,
+      "9": 9.37531380753138,
+      "10": 9.37531380753138,
+      "19": 9.37531380753138,
+      "20": 9.37531380753138,
+      "39": 9.37531380753138
+    },
+    "artifact_sha256": "8cef35d14fd1b15a8d26d7a28b68ccef9e45ae1908cdbbb6ad22ec79f9c19b33"
+  },
+  "provenance": {
+    "upstream_commit": "127df4b714fe4fcf680721d8e9278a96090acd7e",
+    "upstream_source_hashes": {
+      "ns_gym.base": "dc6417883109b73d6439013f258b39283149118ae973c08118557534e622509d",
+      "ns_gym.wrappers.mujoco_env": "e65d1cc69d7ca2c5be21165054ea883034223732c358f7b33945efe45d83639d",
+      "ns_gym.schedulers": "0436dbf55626a6d3053e856d202cefc8e49c28a95564acf8cf44300d57c63a72",
+      "ns_gym.update_functions.single_param": "4d9d9920412378c985f61b728031e01ba60e3a43f2f446bb0e8cb455fd1d5ef7"
+    },
+    "versions": {
+      "ns_gym": "0.0.post1",
+      "gymnasium": "1.3.0",
+      "numpy": "2.4.6",
+      "mujoco": "3.3.7",
+      "torch": "2.14.0",
+      "pytest": "9.1.1"
+    }
+  }
+}
