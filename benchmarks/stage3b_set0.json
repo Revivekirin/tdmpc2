@@ -1,0 +1,39 @@
+{
+  "run_id": "stage3b-generalization",
+  "task": "pick-cube",
+  "model_size": 5,
+  "episodic": false,
+  "methods": [
+    "frozen",
+    "dynamics_only"
+  ],
+  "seed_sets": [
+    0
+  ],
+  "budgets": [
+    0,
+    800,
+    1600,
+    3200,
+    6400,
+    12800
+  ],
+  "shifts": [
+    {
+      "type": "action_delay",
+      "magnitude": 1
+    },
+    {
+      "type": "action_gain",
+      "magnitude": 0.7
+    },
+    {
+      "type": "object_mass",
+      "magnitude": 1.5
+    },
+    {
+      "type": "contact_friction",
+      "magnitude": 0.5
+    }
+  ]
+}

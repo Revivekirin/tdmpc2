@@ -1,0 +1,369 @@
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  launcher:
+    _target_: hydra._internal.core_plugins.basic_launcher.BasicLauncher
+  sweeper:
+    _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
+    max_batch_size: null
+    params: null
+  help:
+    app_name: ${hydra.job.name}
+    header: '${hydra.help.app_name} is powered by Hydra.
+
+      '
+    footer: 'Powered by Hydra (https://hydra.cc)
+
+      Use --hydra-help to view Hydra specific help
+
+      '
+    template: '${hydra.help.header}
+
+      == Configuration groups ==
+
+      Compose your configuration from those groups (group=option)
+
+
+      $APP_CONFIG_GROUPS
+
+
+      == Config ==
+
+      Override anything in the config (foo.bar=value)
+
+
+      $CONFIG
+
+
+      ${hydra.help.footer}
+
+      '
+  hydra_help:
+    template: 'Hydra (${hydra.runtime.version})
+
+      See https://hydra.cc for more info.
+
+
+      == Flags ==
+
+      $FLAGS_HELP
+
+
+      == Configuration groups ==
+
+      Compose your configuration from those groups (For example, append hydra/job_logging=disabled
+      to command line)
+
+
+      $HYDRA_CONFIG_GROUPS
+
+
+      Use ''--cfg hydra'' to Show the Hydra config.
+
+      '
+    hydra_help: ???
+  hydra_logging:
+    version: 1
+    formatters:
+      simple:
+        format: '[%(asctime)s][HYDRA] %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+    root:
+      level: INFO
+      handlers:
+      - console
+    loggers:
+      logging_example:
+        level: DEBUG
+    disable_existing_loggers: false
+  job_logging:
+    version: 1
+    formatters:
+      simple:
+        format: '[%(asctime)s][%(name)s][%(levelname)s] - %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+      file:
+        class: logging.FileHandler
+        formatter: simple
+        filename: ${hydra.runtime.output_dir}/${hydra.job.name}.log
+    root:
+      level: INFO
+      handlers:
+      - console
+      - file
+    disable_existing_loggers: false
+  env: {}
+  mode: MULTIRUN
+  searchpath: []
+  callbacks: {}
+  output_subdir: .hydra
+  overrides:
+    hydra:
+    - hydra/launcher=basic
+    - hydra.mode=MULTIRUN
+    task:
+    - task=pick-cube
+    - model_size=5
+    - episodic=false
+    - checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt
+    - configs/dynamics_shift@dynamics_shift=action_delay
+    - configs/schedule@schedule=fixed
+    - dynamics_shift.parameter.shifted=1
+    - stage3a.mode=frozen
+    - stage3a.seed_set=0,1,2
+    - stage3a.fixed_data_collect=true
+  job:
+    name: adapt_shift
+    chdir: null
+    override_dirname: checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt,configs/dynamics_shift@dynamics_shift=action_delay,configs/schedule@schedule=fixed,dynamics_shift.parameter.shifted=1,episodic=false,model_size=5,stage3a.fixed_data_collect=true,stage3a.mode=frozen,stage3a.seed_set=0,1,2,task=pick-cube
+    id: ???
+    num: ???
+    config_name: stage3a_matched
+    env_set: {}
+    env_copy: []
+    config:
+      override_dirname:
+        kv_sep: '='
+        item_sep: ','
+        exclude_keys: []
+  runtime:
+    version: 1.3.2
+    version_base: '1.3'
+    cwd: /nfs4/jhkim/repos/tdmpc2
+    config_sources:
+    - path: hydra.conf
+      schema: pkg
+      provider: hydra
+    - path: /nfs4/jhkim/repos/tdmpc2/tdmpc2
+      schema: file
+      provider: main
+    - path: ''
+      schema: structured
+      provider: schema
+    output_dir: ???
+    choices:
+      configs/analysis@analysis: disabled
+      configs/evaluation@evaluation: standard
+      configs/adaptation@adaptation: frozen
+      configs/schedule@schedule: fixed
+      configs/dynamics_shift@dynamics_shift: action_delay
+      hydra/env: default
+      hydra/callbacks: null
+      hydra/job_logging: default
+      hydra/hydra_logging: default
+      hydra/hydra_help: default
+      hydra/help: default
+      hydra/sweeper: basic
+      hydra/launcher: basic
+      hydra/output: default
+  verbose: false
+dynamics_shift:
+  enabled: true
+  application: step
+  parameter:
+    type: action_delay
+    target: arm
+    nominal: 0
+    shifted: 1
+    reset_queue_on_episode: true
+    initial_action:
+    - 0
+    - 0
+    - 0
+    - 0
+  schedule:
+    type: fixed
+    clock: global_native_step
+    reset_on_episode: false
+    switch_step: 100
+    interval: 200
+    duration: 200
+    amplitude: 1.0
+    seed: 42
+    values: null
+    segments: []
+  observability:
+    expose_shift_parameter_to_agent: false
+    expose_executed_action_to_agent: false
+  logging:
+    save_step_trace: true
+    save_shift_events: true
+    save_episode_summary: true
+schedule:
+  type: fixed
+  clock: global_native_step
+  reset_on_episode: false
+  switch_step: 10
+  interval: 200
+  duration: 200
+  amplitude: 1.0
+  seed: 42
+  values: null
+  segments: []
+adaptation:
+  mode: frozen
+  update_enabled: false
+evaluation:
+  mode: standard
+  episodes: ${eval_episodes}
+  seeds: ${eval_seeds}
+  pairing: false
+  min_exposure_fraction: 0.0
+  require_shift_exposure: false
+  pairing_atol: 1.0e-06
+analysis:
+  enabled: false
+task: pick-cube
+obs: state
+episodic: false
+checkpoint: /nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt
+eval_episodes: 10
+eval_freq: 50000
+shift_mode: nominal
+shift_gain: 0.7
+shift_switch_step: 100
+shift_period: 200
+shift_amplitude: 0.3
+shift_clock: global
+shift_preserve_gripper: true
+eval_seeds: null
+adaptation_mode: frozen
+benchmark_split: eval
+benchmark_id: dynamics_shift
+benchmark_save_segment_state: false
+benchmark_save_trajectory: true
+benchmark_probe_values: []
+steps: 10000000
+batch_size: 256
+reward_coef: 0.1
+value_coef: 0.1
+termination_coef: 1
+consistency_coef: 20
+rho: 0.5
+lr: 0.0003
+enc_lr_scale: 0.3
+grad_clip_norm: 20
+tau: 0.01
+discount_denom: 5
+discount_min: 0.95
+discount_max: 0.995
+buffer_size: 1000000
+exp_name: default
+data_dir: ???
+mpc: true
+iterations: 6
+num_samples: 512
+num_elites: 64
+num_pi_trajs: 24
+horizon: 3
+min_std: 0.05
+max_std: 2
+temperature: 0.5
+log_std_min: -10
+log_std_max: 2
+entropy_coef: 0.0001
+num_bins: 101
+vmin: -10
+vmax: 10
+model_size: 5
+num_enc_layers: 2
+enc_dim: 256
+num_channels: 32
+mlp_dim: 512
+latent_dim: 512
+task_dim: 96
+num_q: 5
+dropout: 0.01
+simnorm_dim: 8
+wandb_project: ???
+wandb_entity: ???
+wandb_silent: false
+enable_wandb: true
+save_csv: true
+compile: false
+save_video: false
+save_agent: true
+seed: 1
+work_dir: ???
+task_title: ???
+multitask: ???
+tasks: ???
+obs_shape: ???
+action_dim: ???
+episode_length: ???
+obs_shapes: ???
+action_dims: ???
+episode_lengths: ???
+seed_steps: ???
+bin_size: ???
+stage3a:
+  mode: frozen
+  update_granularity: episode
+  consistency_steps: 1
+  action_input: commanded
+  replay_source: fresh_shifted
+  capacity: 100000
+  sampling: uniform_without_replacement
+  batch_size: 16
+  warmup: 16
+  updates_per_episode: 50
+  lr: 3.0e-05
+  episodes: 2000
+  eval_every: 2
+  adaptation_seeds:
+  - 1000
+  - 1001
+  - 1002
+  - 1003
+  - 1004
+  - 1005
+  - 1006
+  - 1007
+  - 1008
+  - 1009
+  evaluation_seeds:
+  - 4000
+  - 4001
+  - 4002
+  - 4003
+  - 4004
+  - 4005
+  - 4006
+  - 4007
+  - 4008
+  - 4009
+  output: stage3a-matched-delay1
+  native_budgets:
+  - 100
+  - 200
+  - 400
+  - 800
+  - 1600
+  adaptation_seed_start: 1000
+  seed_set: 0
+  seed_set_stride: 10000
+  fixed_data_path: stage3a-matched-data/set-${stage3a.seed_set}.pt
+  fixed_data_collect: true
+  fixed_data_seeds:
+  - 5000
+  - 5001
+  - 5002
+  - 5003
+  - 5004
+  - 5005
+  - 5006
+  - 5007
+  - 5008
+  - 5009
+  planner_trace: true

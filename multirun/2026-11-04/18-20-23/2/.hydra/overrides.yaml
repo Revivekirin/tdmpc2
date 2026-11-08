@@ -1,0 +1,10 @@
+- task=pick-cube
+- model_size=5
+- episodic=False
+- checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt
+- configs/dynamics_shift@dynamics_shift=action_delay
+- configs/schedule@schedule=fixed
+- dynamics_shift.parameter.shifted=1
+- stage3a.mode=frozen
+- stage3a.seed_set=2
+- stage3a.fixed_data_collect=True

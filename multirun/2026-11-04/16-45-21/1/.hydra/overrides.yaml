@@ -1,0 +1,17 @@
+- task=pick-cube
+- model_size=5
+- episodic=False
+- checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt
+- configs/dynamics_shift@dynamics_shift=action_delay
+- configs/schedule@schedule=fixed
+- dynamics_shift.parameter.shifted=1
+- stage3a.mode=dynamics_only
+- stage3a.episodes=2
+- stage3a.adaptation_seeds=[1000,1001]
+- stage3a.evaluation_seeds=[2000,2001]
+- stage3a.eval_every=1
+- stage3a.batch_size=16
+- stage3a.warmup=16
+- stage3a.updates_per_episode=2
+- seed=1
+- stage3a.output=stage3a-smoke
