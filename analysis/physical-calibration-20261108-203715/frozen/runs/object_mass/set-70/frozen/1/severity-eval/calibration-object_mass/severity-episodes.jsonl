@@ -1,0 +1,6 @@
+{"condition": "shifted", "seed": 704000, "success": 1.0, "episode_return": 16.48667401075363, "episode_length": 5, "native_steps": 9, "policy_decisions": 5}
+{"condition": "shifted", "seed": 704001, "success": 1.0, "episode_return": 32.89348530769348, "episode_length": 9, "native_steps": 17, "policy_decisions": 9}
+{"condition": "shifted", "seed": 704002, "success": 1.0, "episode_return": 24.436452627182007, "episode_length": 7, "native_steps": 13, "policy_decisions": 7}
+{"condition": "nominal", "seed": 704000, "success": 1.0, "episode_return": 16.48667401075363, "episode_length": 5, "native_steps": 9, "policy_decisions": 5}
+{"condition": "nominal", "seed": 704001, "success": 1.0, "episode_return": 32.89348530769348, "episode_length": 9, "native_steps": 17, "policy_decisions": 9}
+{"condition": "nominal", "seed": 704002, "success": 1.0, "episode_return": 24.436452627182007, "episode_length": 7, "native_steps": 13, "policy_decisions": 7}

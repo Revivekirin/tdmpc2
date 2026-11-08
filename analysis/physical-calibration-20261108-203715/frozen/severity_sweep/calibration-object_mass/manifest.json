@@ -1,0 +1,119 @@
+{
+  "protocol": "stage3b-1-frozen-v1",
+  "run_id": "calibration-object_mass",
+  "task": "pick-cube",
+  "model_size": 5,
+  "episodic": false,
+  "log_eef": true,
+  "entries": [
+    {
+      "shift_type": "object_mass",
+      "shift_value": 1.0,
+      "set_id": 70,
+      "seeds": [
+        704000,
+        704001,
+        704002
+      ],
+      "path": "/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/object_mass/set-70/frozen/1/severity-eval/calibration-object_mass",
+      "command": [
+        "/home/jhkim/miniconda3/envs/tdmpc2-ms2/bin/python",
+        "tdmpc2/evaluate_severity.py",
+        "task=pick-cube",
+        "model_size=5",
+        "episodic=false",
+        "checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+        "dynamics_shift=object_mass",
+        "schedule=fixed",
+        "dynamics_shift.parameter.shifted=1.0",
+        "stage3a.seed_set=70",
+        "stage3a.evaluation_seeds=[704000,704001,704002]",
+        "severity.output=\"/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/object_mass/set-70/frozen/1/severity-eval/calibration-object_mass\"",
+        "severity.run_id=calibration-object_mass",
+        "severity.log_eef=true"
+      ]
+    },
+    {
+      "shift_type": "object_mass",
+      "shift_value": 1.5,
+      "set_id": 70,
+      "seeds": [
+        704000,
+        704001,
+        704002
+      ],
+      "path": "/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/object_mass/set-70/frozen/1.5/severity-eval/calibration-object_mass",
+      "command": [
+        "/home/jhkim/miniconda3/envs/tdmpc2-ms2/bin/python",
+        "tdmpc2/evaluate_severity.py",
+        "task=pick-cube",
+        "model_size=5",
+        "episodic=false",
+        "checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+        "dynamics_shift=object_mass",
+        "schedule=fixed",
+        "dynamics_shift.parameter.shifted=1.5",
+        "stage3a.seed_set=70",
+        "stage3a.evaluation_seeds=[704000,704001,704002]",
+        "severity.output=\"/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/object_mass/set-70/frozen/1.5/severity-eval/calibration-object_mass\"",
+        "severity.run_id=calibration-object_mass",
+        "severity.log_eef=true"
+      ]
+    },
+    {
+      "shift_type": "object_mass",
+      "shift_value": 2.0,
+      "set_id": 70,
+      "seeds": [
+        704000,
+        704001,
+        704002
+      ],
+      "path": "/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/object_mass/set-70/frozen/2/severity-eval/calibration-object_mass",
+      "command": [
+        "/home/jhkim/miniconda3/envs/tdmpc2-ms2/bin/python",
+        "tdmpc2/evaluate_severity.py",
+        "task=pick-cube",
+        "model_size=5",
+        "episodic=false",
+        "checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+        "dynamics_shift=object_mass",
+        "schedule=fixed",
+        "dynamics_shift.parameter.shifted=2.0",
+        "stage3a.seed_set=70",
+        "stage3a.evaluation_seeds=[704000,704001,704002]",
+        "severity.output=\"/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/object_mass/set-70/frozen/2/severity-eval/calibration-object_mass\"",
+        "severity.run_id=calibration-object_mass",
+        "severity.log_eef=true"
+      ]
+    },
+    {
+      "shift_type": "object_mass",
+      "shift_value": 3.0,
+      "set_id": 70,
+      "seeds": [
+        704000,
+        704001,
+        704002
+      ],
+      "path": "/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/object_mass/set-70/frozen/3/severity-eval/calibration-object_mass",
+      "command": [
+        "/home/jhkim/miniconda3/envs/tdmpc2-ms2/bin/python",
+        "tdmpc2/evaluate_severity.py",
+        "task=pick-cube",
+        "model_size=5",
+        "episodic=false",
+        "checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+        "dynamics_shift=object_mass",
+        "schedule=fixed",
+        "dynamics_shift.parameter.shifted=3.0",
+        "stage3a.seed_set=70",
+        "stage3a.evaluation_seeds=[704000,704001,704002]",
+        "severity.output=\"/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/object_mass/set-70/frozen/3/severity-eval/calibration-object_mass\"",
+        "severity.run_id=calibration-object_mass",
+        "severity.log_eef=true"
+      ]
+    }
+  ],
+  "checkpoint_sha256": "1781f0fa959ee51fe96450e5bf5bf24f1d87ce515a89730e6b964c560144a258"
+}
