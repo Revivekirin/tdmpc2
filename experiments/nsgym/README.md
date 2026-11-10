@@ -54,3 +54,11 @@ python3 archive/legacy_maniskill2/verify_archive.py
 ## Controlled physics and training pipeline
 
 See [PIPELINE.md](PIPELINE.md) for paired physical validation, the separate nominal training entry point, frozen checkpoint evaluation, all execution commands, and the current CUDA blocker. Physical validation passes; learned-controller robustness has not been evaluated.
+
+## Physical severity benchmark (750k primary)
+
+The newer [server command guide](RUN_PHYSICAL_SEVERITY_SWEEP.md) implements a fixed 750k primary contract, damping/mass engineering grid, controlled state/action probes, frozen latent/MPPI diagnostics, and independent frozen/nonstationary stages. See the [physical parameter audit](NSGYM_PHYSICAL_PARAMETER_AUDIT.md), [calibration protocol](PHYSICAL_SEVERITY_PROTOCOL.md), [Frozen protocol](FROZEN_GENERALIZATION_PROTOCOL.md), and [nonstationary protocol](NONSTATIONARY_EVALUATION_PROTOCOL.md). Local bounded physics validation is separate from the server experiments marked NOT_RUN. Commands come from `scripts/print_severity_commands.py` and the actual stage parser.
+
+## Reacher-v5 nominal training
+
+See [REACHER.md](REACHER.md) for the Reacher adapter, server checks, pilot and full-run commands, and checkpoint continuation limits.

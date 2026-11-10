@@ -3,6 +3,7 @@ import gymnasium as gym
 
 from .halfcheetah import HalfCheetah
 from .pusher import Pusher
+from .reacher import Reacher
 
 
 class TDMPC2Wrapper(gym.Wrapper):
@@ -27,7 +28,8 @@ def make_env(cfg, *, recorder=None):
     Keep NS-Gym dependencies out of all existing environment imports. Uses the
     existing TensorWrapper without changing agent, model, MPC or adaptation.
     """
-    environments = {'nsgym-halfcheetah': HalfCheetah, 'nsgym-pusher': Pusher}
+    environments = {'nsgym-halfcheetah': HalfCheetah, 'nsgym-pusher': Pusher,
+                    'nsgym-reacher': Reacher}
     if cfg.task not in environments:
         raise ValueError(f'Unknown NS-Gym task: {cfg.task}')
     if cfg.get('multitask', False) or cfg.get('obs', 'state') != 'state':

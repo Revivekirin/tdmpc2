@@ -40,7 +40,8 @@ def config_from_file(path, smoke=False):
 
 
 def validate_config(c):
-    supported={'nsgym-halfcheetah':'HalfCheetah-v5','nsgym-pusher':'Pusher-v5'}
+    supported={'nsgym-halfcheetah':'HalfCheetah-v5','nsgym-pusher':'Pusher-v5',
+               'nsgym-reacher':'Reacher-v5'}
     if supported.get(c['task'])!=c['environment_id']:raise ValueError('Unsupported NS-Gym task/environment pair')
     if c['nsgym']['mode']!='nominal' or c['nsgym']['mass_scale']!=1:raise ValueError('Training must be nominal')
     if c['device']!='cuda:0':raise ValueError('Original implementation requires cuda:0')
@@ -86,6 +87,9 @@ def learned_state(agent):
 def evaluate(agent, config, seeds, scale=1., random_actions=False, fixed=False, zero_actions=False):
     """Separate environment; independent seed per episode; preserve training RNG."""
     if random_actions and zero_actions:raise ValueError('Choose one baseline action mode')
+    is_reacher=config['task']=='nsgym-reacher'
+    if is_reacher and (scale!=1. or fixed):
+        raise ValueError('Reacher evaluation currently supports nominal physics only')
     rng_state=(random.getstate(),np.random.get_state(),torch.get_rng_state(),torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [])
     before=tree_hash(learned_state(agent)) if agent is not None else None
     records=[]; started=time.perf_counter()
@@ -101,7 +105,8 @@ def evaluate(agent, config, seeds, scale=1., random_actions=False, fixed=False, 
                 obs=env.reset(seed=seed);actions=[];vel=[];run=[];ctrl=[];rewards=[];terminated=False
                 is_pusher=config['task']=='nsgym-pusher'
                 goal_distances=[];near=[]
-                initial_goal_distance=float(np.linalg.norm(obs.cpu().numpy()[-6:-3]-obs.cpu().numpy()[-3:])) if is_pusher else None
+                initial_goal_distance=(float(np.linalg.norm(obs.cpu().numpy()[-2:])) if is_reacher else
+                                       float(np.linalg.norm(obs.cpu().numpy()[-6:-3]-obs.cpu().numpy()[-3:])) if is_pusher else None)
                 rng=np.random.default_rng(seed)
                 with torch.no_grad():
                     for t in range(cfg.episode_length):
@@ -116,28 +121,40 @@ def evaluate(agent, config, seeds, scale=1., random_actions=False, fixed=False, 
                             goal_distances.append(float(np.linalg.norm(state[-6:-3]-state[-3:])))
                             run.append(float(info['reward_dist']))
                             near.append(float(info['reward_near']))
+                        elif is_reacher:
+                            goal_distances.append(float(np.linalg.norm(obs.cpu().numpy()[-2:])))
+                            run.append(float(info['reward_dist']))
                         else:
                             vel.append(float(info['x_velocity']));run.append(float(info['reward_run']))
                         ctrl.append(float(info['reward_ctrl']))
                         terminated=bool(info['terminated'])
                         if done:break
-                mass_key='link_mass' if is_pusher else 'torso_mass'
-                target=logs[0][mass_key]*scale
-                assert all(abs(r[mass_key]-target)<1e-10 for r in logs if r['event']=='step')
+                if not is_reacher:
+                    mass_key='link_mass' if is_pusher else 'torso_mass'
+                    target=logs[0][mass_key]*scale
+                    assert all(abs(r[mass_key]-target)<1e-10 for r in logs if r['event']=='step')
                 a=np.array(actions)
-                record=dict(seed=int(seed),mass_scale=float(scale),mass_parameter='r_shoulder_pan_link_mass' if is_pusher else 'torso_mass',
-                    mass_value=float(logs[1][mass_key]),mass_readback_min=min(r[mass_key] for r in logs[1:]),mass_readback_max=max(r[mass_key] for r in logs[1:]),shift_transition=0 if fixed or scale!=1 else None,
-                    episode_return=sum(rewards),episode_length=len(rewards),reward_control=sum(ctrl),control_effort=float(np.square(a).sum()),
+                record=dict(seed=int(seed),episode_return=sum(rewards),episode_length=len(rewards),reward_control=sum(ctrl),control_effort=float(np.square(a).sum()),
                     action_abs_mean=float(np.abs(a).mean()),action_std=float(a.std()),
                     action_change_rms=float(np.sqrt(np.mean(np.diff(a,axis=0)**2))) if len(a)>1 else 0.,
                     terminated=terminated,truncated=bool(info['truncated']),random_actions=random_actions,
                     zero_actions=zero_actions)
+                if not is_reacher:
+                    record.update(mass_scale=float(scale),mass_parameter='r_shoulder_pan_link_mass' if is_pusher else 'torso_mass',
+                        mass_value=float(logs[1][mass_key]),mass_readback_min=min(r[mass_key] for r in logs[1:]),
+                        mass_readback_max=max(r[mass_key] for r in logs[1:]),shift_transition=0 if fixed or scale!=1 else None)
                 if is_pusher:
                     record.update(goal_distance_initial=initial_goal_distance,
                                   goal_distance_final=goal_distances[-1],
                                   goal_progress=initial_goal_distance-goal_distances[-1],
                                   goal_distance_mean=float(np.mean(goal_distances)),
                                   reward_dist=sum(run),reward_near=sum(near))
+                elif is_reacher:
+                    record.update(goal_distance_initial=initial_goal_distance,
+                                  goal_distance_final=goal_distances[-1],
+                                  goal_progress=initial_goal_distance-goal_distances[-1],
+                                  goal_distance_mean=float(np.mean(goal_distances)),
+                                  reward_dist=sum(run))
                 else:
                     record.update(torso_mass=record['mass_value'],forward_velocity=float(np.mean(vel)),
                                   velocity_std=float(np.std(vel)),reward_run=sum(run))
