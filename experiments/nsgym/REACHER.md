@@ -54,6 +54,34 @@ REACHER_CONFIG=experiments/nsgym/configs/train_reacher_nominal.yaml \
   experiments/nsgym/scripts/run_reacher.sbatch
 ```
 
+For an interactive `srun` launch instead of `sbatch`, keep the first shell
+open (or run it inside `tmux`). From the repository root with `tdmpc2-nsgym`
+activated:
+
+```bash
+RUN=results/nsgym/reacher-full-01
+srun --ntasks=1 --gres=gpu:1 --time=48:00:00 \
+  python -u experiments/nsgym/scripts/train_nominal.py \
+  --config experiments/nsgym/configs/train_reacher_nominal.yaml \
+  --output "$RUN" > "$RUN.log" 2>&1
+```
+
+From a second shell, monitor the run without stopping the first shell:
+
+```bash
+cd /nfs4/jhkim/repos/tdmpc2
+RUN=results/nsgym/reacher-full-01
+tail -n 3 -F "$RUN/training.jsonl"
+```
+
+`training.jsonl` is written every transition. Check startup messages or errors
+separately with `tail -n 30 "$RUN.log"`; the log does not print each step.
+
+If already inside a Slurm allocation, `srun` creates a step in that allocation;
+its existing time limit applies. Remove `--time` and request no more GPUs than
+were allocated. Use the site's required partition/account options when `srun`
+creates a new allocation.
+
 `train_nominal.py` has no `--resume` argument. Checkpoints contain model,
 optimizer and RunningScale state, but not replay buffer, partially collected
 episode, environment state, or Python/NumPy/PyTorch random states. They can be

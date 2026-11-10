@@ -6,8 +6,8 @@ from pathlib import Path
 from severity_protocol import parser as stage_parser, resolve, load
 
 
-def commands(root):
-    root=Path(root);cp=load('physical_severity_grid.yaml')['primary_checkpoint']
+def commands(root, checkpoint=None):
+    root=Path(root);cp=str(checkpoint or load('physical_severity_grid.yaml')['primary_checkpoint'])
     def cmd(stage,name,*extra):
         return [stage,'--checkpoint',cp,'--output',str(root/name),*map(str,extra)]
     jobs=[('setup',cmd('manifest','preregistered')),
@@ -41,14 +41,15 @@ def commands(root):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output-root',type=Path,default=Path('results/nsgym/physical-severity-750k-v1'))
+    p.add_argument('--checkpoint',type=Path,help='750k checkpoint directory; use an absolute path when results live outside this project root')
     p.add_argument('--phase',choices=['all','setup','smoke','physical','diagnostics','planning','frozen','nonstationary','optional'],default='all')
     p.add_argument('--python',default='python')
     p.add_argument('--dry-run',action='store_true',help='Append --dry-run to each generated stage command')
     args=p.parse_args()
-    print('# Execute from /nfs4/jhkim/repos/tdmpc2 in tdmpc2-nsgym. Commands are printed, never executed.')
+    print('# Execute from the project root containing experiments/ and tdmpc2/ in tdmpc2-nsgym. Commands are printed, never executed.')
     print('# Run phases separately: physical results review -> frozen -> frozen results review -> nonstationary.')
     print('# optional S3-S5 commands require separate experiment approval. Every output directory must be new.')
-    for phase,argv in commands(args.output_root):
+    for phase,argv in commands(args.output_root,args.checkpoint):
         if phase=='optional' and args.phase!='optional':continue
         if args.phase not in ('all',phase):continue
         resolved=resolve(stage_parser().parse_args(argv))
