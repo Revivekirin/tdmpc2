@@ -32,12 +32,13 @@ def write_csv(path, rows):
         w.writerows(rows)
 
 
-def stream_training(path, seed_steps, width=50000):
+def stream_training(path, seed_steps, width=50000, allow_partial_last_line=False):
     """One bin in memory, exact medians, population SD, entire file in one pass."""
     bins, values = [], {k: [] for k in METRICS}
     current = 0
     state = dict(rows=0, first_update_transition=None, final_updates=0,
-                 update_count_mismatches=0, missing_metric_rows=0)
+                 update_count_mismatches=0, missing_metric_rows=0, bytes_processed=0,
+                 ignored_incomplete_final_line=False)
     h = hashlib.sha256()
 
     def flush():
@@ -49,11 +50,15 @@ def stream_training(path, seed_steps, width=50000):
 
     with Path(path).open('rb') as f:
         for line_no, raw in enumerate(f, 1):
-            h.update(raw)
+            if not raw.endswith(b'\n') and allow_partial_last_line:
+                state['ignored_incomplete_final_line'] = True
+                break
             try:
                 row = json.loads(raw)
             except Exception as exc:
                 raise ValueError(f'Invalid JSON at line {line_no}; use a complete stable log') from exc
+            h.update(raw)
+            state['bytes_processed'] += len(raw)
             t = row['environment_transitions']
             if t != state['rows'] + 1:
                 raise ValueError(f'Non-contiguous transitions at line {line_no}: {t}')
@@ -80,6 +85,19 @@ def stream_training(path, seed_steps, width=50000):
     flush()
     state['sha256'] = h.hexdigest()
     return bins, state
+
+
+def sha_prefix(path, count):
+    h = hashlib.sha256()
+    with Path(path).open('rb') as f:
+        remaining = count
+        while remaining:
+            block = f.read(min(1024 * 1024, remaining))
+            if not block:
+                raise ValueError('Training log shortened during audit')
+            h.update(block)
+            remaining -= len(block)
+    return h.hexdigest()
 
 
 def training_curve(run):
@@ -143,8 +161,7 @@ def main():
         p.error('Output must be outside the original training run')
     if args.episodes < 10:
         p.error('Use at least 10 independent validation seeds')
-    if not (run/'completion.json').exists():
-        p.error('completion.json required: audit a completed, stable run')
+    completed = (run/'completion.json').exists()
     provenance = json.loads((run/'metadata.json').read_text())
     config = provenance['config']
     if config['task'] != 'nsgym-halfcheetah' or config['episodic'] or config['nsgym']['mode'] != 'nominal' or config['nsgym']['mass_scale'] != 1:
@@ -157,24 +174,30 @@ def main():
     if not candidates <= available.keys():
         p.error(f'Missing required checkpoints: {sorted(candidates - available.keys())}')
     curve = training_curve(run)
-    if not curve:
-        p.error('evaluation.csv must contain the full training evaluation curve')
-    peak = max(curve, key=curve.get)
-    if peak not in available:
+    peak = max(curve, key=curve.get) if curve else None
+    if peak is not None and peak not in available:
         p.error(f'Training curve peak checkpoint {peak} is missing')
-    candidates.update([peak, max(available)])
+    if peak is not None:
+        candidates.add(peak)
+    candidates.add(max(available))
     from training_support import load_checkpoint, evaluate, learned_state, tree_hash
     from research_utils import metadata, bootstrap
     import numpy as np
     import torch
+    bins, log = stream_training(run/'training.jsonl', config['seed_steps'],
+                                allow_partial_last_line=not completed)
+    completion = json.loads((run/'completion.json').read_text()) if completed else None
+    if (completed and (log['rows'] != config['steps'] or
+                       completion['environment_transitions'] != log['rows'] or
+                       completion['gradient_updates'] != log['final_updates'])) or \
+       max(candidates) > log['rows'] or log['update_count_mismatches'] or log['missing_metric_rows']:
+        raise ValueError(f'Training log/count validation failed: {log}')
     out.mkdir(parents=True, exist_ok=False)
-    bins, log = stream_training(run/'training.jsonl', config['seed_steps'])
     write_csv(out/'nominal_loss_statistics.csv', bins)
     write_json(out/'training_log_audit.json', log)
-    completion = json.loads((run/'completion.json').read_text())
-    if log['rows'] != config['steps'] or completion['environment_transitions'] != log['rows'] or completion['gradient_updates'] != log['final_updates'] or log['update_count_mismatches'] or log['missing_metric_rows']:
-        raise ValueError('Training log/count validation failed; inspect training_log_audit.json')
-    audit_meta = metadata(dict(run=str(run), seeds=seeds, candidates=sorted(candidates), nominal_only=True))
+    audit_meta = metadata(dict(run=str(run), seeds=seeds, candidates=sorted(candidates),
+                               nominal_only=True, training_completed_at_start=completed,
+                               training_log_snapshot_transitions=log['rows']))
     write_json(out/'audit_provenance.json', audit_meta)
     rows, summaries, checkpoint_meta, integrity = [], [], {}, []
     for t in sorted(candidates):
@@ -235,8 +258,8 @@ def main():
         summaries.append(summary)
         del agent, original_act
         torch.cuda.empty_cache()
-    if sha(run/'training.jsonl') != log['sha256']:
-        raise ValueError('Training log changed during audit')
+    if sha_prefix(run/'training.jsonl', log['bytes_processed']) != log['sha256']:
+        raise ValueError('Audited prefix of training log changed during audit')
     write_json(out/'nominal_integrity.json', integrity)
     write_csv(out/'nominal_checkpoint_validation.csv', rows)
     write_json(out/'nominal_checkpoint_summary.json', summaries)
@@ -251,7 +274,9 @@ def main():
         comparisons.append(dict(other_transitions=s['transitions'], paired_gain=statistics.mean(difference),
                                 exploratory_ci95=bootstrap(difference)))
     write_json(out/'selected_nominal_checkpoint.json', dict(
-        status='SELECTED_ON_NOMINAL_VALIDATION', checkpoint=str(available[t]), sha256=sha(available[t]/'model.pt'),
+        status='SELECTED_ON_NOMINAL_VALIDATION' if completed else 'PROVISIONAL_SELECTION_DURING_TRAINING',
+        training_completed_at_start=completed, training_log_snapshot_transitions=log['rows'],
+        checkpoint=str(available[t]), sha256=sha(available[t]/'model.pt'),
         configuration=meta['config'], source_revision=meta['provenance'].get('git_sha'),
         training_provenance=meta['provenance'], evaluation_source_revision=audit_meta['git_sha'],
         evaluation_source_hashes=audit_meta['source_hashes'], training_evaluation_seeds=config['eval_seeds'],
@@ -261,8 +286,8 @@ def main():
         limitation='Selection-set performance, not independent final-test performance; no universal convergence threshold.'))
     plots(out, bins, summaries, rows, curve)
     lines = ['# Nominal convergence audit', '',
-        f'Run: `{run}`. Completed log: {log["rows"]:,} transitions; SHA256 `{log["sha256"]}`.',
-        f'Selected checkpoint: **{t:,}**, nominal validation return **{selected["mean_return"]:.2f} ± {selected["std_return"]:.2f}** (sample SD, {len(seeds)} seeds).',
+        f'Run: `{run}`. {"Completed run" if completed else "In-progress snapshot"}: {log["rows"]:,} logged transitions; audited-prefix SHA256 `{log["sha256"]}`.',
+        f'{"Selected" if completed else "Provisional selected"} checkpoint: **{t:,}**, nominal validation return **{selected["mean_return"]:.2f} ± {selected["std_return"]:.2f}** (sample SD, {len(seeds)} seeds).',
         'Selection uses nominal return only. No training, adaptation, or dynamics-shift evaluation was executed.', '',
         '## Evidence and limits',
         'A high return alone does not prove convergence. No absolute acceptable-return threshold was supplied. '
@@ -270,7 +295,9 @@ def main():
         'Paired bootstrap intervals are exploratory, not corrected for checkpoint selection or multiple comparisons. '
         'An independent final test would be needed for an unbiased selected-controller performance estimate.',
         f'Training evaluation seeds: {config["eval_seeds"]}. Validation seeds: {seeds}.',
-        f'Candidates: {sorted(candidates)}; includes requested checkpoints, training-curve peak ({peak:,}), and latest available checkpoint.', '',
+        f'Candidates: {sorted(candidates)}; includes requested checkpoints and latest available checkpoint.' +
+        (f' Training-evaluation curve peak: {peak:,}.' if peak is not None else
+         ' Training evaluation.csv is not yet available, so the training-curve peak cannot be identified; rerun after completion.'), '',
         '| Transitions | Return mean | Sample SD | Return/step | Velocity | Cost/step | Length | Terminated fraction | Truncated fraction | Saturation fraction |',
         '|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
     for s in summaries:
@@ -283,7 +310,7 @@ def main():
     for c in comparisons:
         lines.append(f'- Against {c["other_transitions"]:,}: mean gain {c["paired_gain"]:.2f}; exploratory 95% CI {c["exploratory_ci95"]}.')
     lines += ['', '## Training log and code audit',
-        f'All {log["rows"]:,} JSONL records streamed. Exact mean/median/population SD use bins [1, 50000], [50001, 100000], etc.; '
+        f'All {log["rows"]:,} complete JSONL records present at audit start were streamed. Exact mean/median/population SD use bins [1, 50000], [50001, 100000], etc.; '
         'only one bin is retained in memory. Missing pre-update losses are not zero-filled. Full statistics: nominal_loss_statistics.csv.',
         f'First gradient update transition: {log["first_update_transition"]}; final cumulative updates: {log["final_updates"]}; count mismatches: {log["update_count_mismatches"]}.',
         'Local source contract: train_nominal.train uses random actions while zero-based step <= seed_steps. '
