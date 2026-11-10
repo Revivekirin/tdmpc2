@@ -1,0 +1,6 @@
+# Linux x86_64 / Python 3.11, NVIDIA RTX A5000, driver 535.230.02.
+# CUDA 12.x minor-version compatibility; keep compile=false and validate on GPU.
+# The explicit local version prevents pip selecting the default CUDA 13 build.
+--extra-index-url https://download.pytorch.org/whl/cu126
+-r requirements-training.txt
+torch==2.14.0+cu126

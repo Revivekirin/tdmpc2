@@ -1,0 +1,119 @@
+{
+  "protocol": "stage3b-1-frozen-v1",
+  "run_id": "calibration-contact_friction",
+  "task": "pick-cube",
+  "model_size": 5,
+  "episodic": false,
+  "log_eef": true,
+  "entries": [
+    {
+      "shift_type": "contact_friction",
+      "shift_value": 1.0,
+      "set_id": 70,
+      "seeds": [
+        704000,
+        704001,
+        704002
+      ],
+      "path": "/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/contact_friction/set-70/frozen/1/severity-eval/calibration-contact_friction",
+      "command": [
+        "/home/jhkim/miniconda3/envs/tdmpc2-ms2/bin/python",
+        "tdmpc2/evaluate_severity.py",
+        "task=pick-cube",
+        "model_size=5",
+        "episodic=false",
+        "checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+        "dynamics_shift=contact_friction",
+        "schedule=fixed",
+        "dynamics_shift.parameter.shifted=1.0",
+        "stage3a.seed_set=70",
+        "stage3a.evaluation_seeds=[704000,704001,704002]",
+        "severity.output=\"/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/contact_friction/set-70/frozen/1/severity-eval/calibration-contact_friction\"",
+        "severity.run_id=calibration-contact_friction",
+        "severity.log_eef=true"
+      ]
+    },
+    {
+      "shift_type": "contact_friction",
+      "shift_value": 0.7,
+      "set_id": 70,
+      "seeds": [
+        704000,
+        704001,
+        704002
+      ],
+      "path": "/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/contact_friction/set-70/frozen/0.7/severity-eval/calibration-contact_friction",
+      "command": [
+        "/home/jhkim/miniconda3/envs/tdmpc2-ms2/bin/python",
+        "tdmpc2/evaluate_severity.py",
+        "task=pick-cube",
+        "model_size=5",
+        "episodic=false",
+        "checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+        "dynamics_shift=contact_friction",
+        "schedule=fixed",
+        "dynamics_shift.parameter.shifted=0.7",
+        "stage3a.seed_set=70",
+        "stage3a.evaluation_seeds=[704000,704001,704002]",
+        "severity.output=\"/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/contact_friction/set-70/frozen/0.7/severity-eval/calibration-contact_friction\"",
+        "severity.run_id=calibration-contact_friction",
+        "severity.log_eef=true"
+      ]
+    },
+    {
+      "shift_type": "contact_friction",
+      "shift_value": 0.5,
+      "set_id": 70,
+      "seeds": [
+        704000,
+        704001,
+        704002
+      ],
+      "path": "/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/contact_friction/set-70/frozen/0.5/severity-eval/calibration-contact_friction",
+      "command": [
+        "/home/jhkim/miniconda3/envs/tdmpc2-ms2/bin/python",
+        "tdmpc2/evaluate_severity.py",
+        "task=pick-cube",
+        "model_size=5",
+        "episodic=false",
+        "checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+        "dynamics_shift=contact_friction",
+        "schedule=fixed",
+        "dynamics_shift.parameter.shifted=0.5",
+        "stage3a.seed_set=70",
+        "stage3a.evaluation_seeds=[704000,704001,704002]",
+        "severity.output=\"/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/contact_friction/set-70/frozen/0.5/severity-eval/calibration-contact_friction\"",
+        "severity.run_id=calibration-contact_friction",
+        "severity.log_eef=true"
+      ]
+    },
+    {
+      "shift_type": "contact_friction",
+      "shift_value": 0.3,
+      "set_id": 70,
+      "seeds": [
+        704000,
+        704001,
+        704002
+      ],
+      "path": "/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/contact_friction/set-70/frozen/0.3/severity-eval/calibration-contact_friction",
+      "command": [
+        "/home/jhkim/miniconda3/envs/tdmpc2-ms2/bin/python",
+        "tdmpc2/evaluate_severity.py",
+        "task=pick-cube",
+        "model_size=5",
+        "episodic=false",
+        "checkpoint=/nfs4/jhkim/repos/tdmpc2/checkpoints/maniskill2/pick-cube-1.pt",
+        "dynamics_shift=contact_friction",
+        "schedule=fixed",
+        "dynamics_shift.parameter.shifted=0.3",
+        "stage3a.seed_set=70",
+        "stage3a.evaluation_seeds=[704000,704001,704002]",
+        "severity.output=\"/nfs4/jhkim/repos/tdmpc2/analysis/physical-calibration-20261108-203715/frozen/runs/contact_friction/set-70/frozen/0.3/severity-eval/calibration-contact_friction\"",
+        "severity.run_id=calibration-contact_friction",
+        "severity.log_eef=true"
+      ]
+    }
+  ],
+  "checkpoint_sha256": "1781f0fa959ee51fe96450e5bf5bf24f1d87ce515a89730e6b964c560144a258"
+}

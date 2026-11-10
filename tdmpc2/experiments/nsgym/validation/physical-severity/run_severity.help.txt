@@ -1,0 +1,51 @@
+usage: run_severity.py [-h] [--checkpoint CHECKPOINT]
+                       [--checkpoint-role {primary,sensitivity}]
+                       [--shift-family {all,mass,damping}]
+                       [--parameter PARAMETER]
+                       [--severity SEVERITY [SEVERITY ...]]
+                       [--schedule {nominal,fixed,abrupt,gradual,reversible,repeated}]
+                       [--seeds SEEDS [SEEDS ...]]
+                       [--seed-split {calibration,validation,evaluation,sensitivity}]
+                       --output OUTPUT [--input INPUT] [--gate GATE]
+                       [--physical-reference PHYSICAL_REFERENCE]
+                       [--policy {primary,exploration}] [--smoke]
+                       [--allow-optional-large] [--dry-run]
+                       {environment,inventory,manifest,validate,bank,physical,latent,planning,frozen,nonstationary,summarize}
+
+Frozen 750k NS-Gym physical severity pipeline; no optimizer updates.
+
+positional arguments:
+  {environment,inventory,manifest,validate,bank,physical,latent,planning,frozen,nonstationary,summarize}
+
+options:
+  -h, --help            show this help message and exit
+  --checkpoint CHECKPOINT
+  --checkpoint-role {primary,sensitivity}
+  --shift-family {all,mass,damping}
+  --parameter PARAMETER
+                        One official scalar parameter listed in the
+                        preregistered grid
+  --severity SEVERITY [SEVERITY ...]
+                        Subset of preregistered engineering grid
+  --schedule {nominal,fixed,abrupt,gradual,reversible,repeated}
+  --seeds SEEDS [SEEDS ...]
+                        Subset of the stage-specific seed split
+  --seed-split {calibration,validation,evaluation,sensitivity}
+                        Explicit split for offline diagnostics or a paired
+                        sensitivity study
+  --output OUTPUT       New directory, never overwritten
+  --input INPUT         Bank, response data, or raw evaluation directory
+  --gate GATE           Completed prerequisite stage (physical for frozen;
+                        frozen for nonstationary)
+  --physical-reference PHYSICAL_REFERENCE
+                        Physical response directory for response/control
+                        comparison plot
+  --policy {primary,exploration}
+                        Bank source only
+  --smoke               Bounded 12-step integration experiment; not research
+                        evidence
+  --allow-optional-large
+                        Explicit execution gate for large S3-S5 after separate
+                        experiment approval
+  --dry-run             Print resolved manifest and budgets; do not simulate
+                        or write

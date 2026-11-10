@@ -1,0 +1,19 @@
+usage: evaluate_frozen.py [-h] [--config CONFIG] [--checkpoint CHECKPOINT]
+                          [--output OUTPUT] [--quality-report QUALITY_REPORT]
+                          [--integration-only] [--nominal-only] [--expanded]
+                          [--episodes EPISODES] [--summarize SUMMARIZE]
+
+Frozen paired robustness evaluation; software smoke is not scientific
+evidence.
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG
+  --checkpoint CHECKPOINT
+  --output OUTPUT
+  --quality-report QUALITY_REPORT
+  --integration-only
+  --nominal-only
+  --expanded
+  --episodes EPISODES
+  --summarize SUMMARIZE

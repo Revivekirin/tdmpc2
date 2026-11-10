@@ -1,0 +1,12 @@
+usage: train_nominal.py [-h] [--config CONFIG] [--output OUTPUT] [--smoke]
+                        [--check-config] [--plot PLOT]
+
+CUDA-only nominal training using the original agent, buffer and replay format.
+
+options:
+  -h, --help       show this help message and exit
+  --config CONFIG
+  --output OUTPUT
+  --smoke
+  --check-config
+  --plot PLOT

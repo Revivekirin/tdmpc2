@@ -1,0 +1,14 @@
+{
+  "protocol_version": 1,
+  "primary_checkpoint": "results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000",
+  "primary_sha256": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b",
+  "secondary_sha256": "c93c0a768a025a3775907d6ff4c0cdb7c63a43b0fbadf00acd5960ce1c92463f",
+  "families": {"damping": ["bthigh_damping"], "mass": ["torso_mass"]},
+  "severities": [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
+  "horizon": 1000,
+  "probe_horizon": 10,
+  "samples_per_seed": 16,
+  "exclusions": [],
+  "rationale": "Engineering multipliers, not an NS-Gym standard. Single back-thigh hinge damping and single torso body mass; no equal-difficulty claim. All positive candidates retained before shifted return is observed.",
+  "selection": "Primary 750k fixed by user; 950k only as separately labelled sensitivity analysis. No checkpoint selection on shifted return."
+}

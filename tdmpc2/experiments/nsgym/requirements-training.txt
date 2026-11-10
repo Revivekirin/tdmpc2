@@ -1,0 +1,5 @@
+# Install in the separate NS-Gym environment only. No legacy dependency changes.
+-r requirements.txt
+tensordict==0.14.3
+torchrl==0.14.1
+matplotlib==3.10.9

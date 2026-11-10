@@ -1,0 +1,13 @@
+{
+  "clock": "episode_local_pre_action_zero_based",
+  "persistent_params": false,
+  "onset": 250,
+  "duration": 250,
+  "restore": 750,
+  "period": 250,
+  "schedules": ["nominal", "fixed", "abrupt", "gradual", "reversible", "repeated"],
+  "required_large_evaluation": ["nominal", "fixed", "abrupt"],
+  "validation_severity": 1.5,
+  "optional_large_evaluation": ["gradual", "reversible", "repeated"],
+  "semantics": "Updates happen before the indexed action. Gradual k(t)=1+(k-1)*clip((t-onset)/duration,0,1). Repeated toggles every period beginning at onset. Reset restores nominal physics and resets schedule; global step is logged separately and never drives this protocol."
+}

@@ -1,0 +1,13 @@
+usage: validate_physics.py [-h] [--config CONFIG] [--output OUTPUT]
+                           [--expanded] [--summarize SUMMARIZE]
+
+Paired full-state one-step and open-loop physical response experiments.
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG
+  --output OUTPUT
+  --expanded
+  --summarize SUMMARIZE
+                        Rebuild missing summary files from saved raw.npz;
+                        existing tables refuse overwrite

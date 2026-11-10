@@ -1,0 +1,63 @@
+{
+  "run_id": "stage3b-generalization",
+  "task": "pick-cube",
+  "model_size": 5,
+  "episodic": false,
+  "severity_layout": true,
+  "methods": [
+    "decision_ttt"
+  ],
+  "seed_sets": [
+    0
+  ],
+  "budgets": [
+    0,
+    800,
+    1600,
+    3200,
+    6400,
+    12800
+  ],
+  "shifts": [
+    {
+      "type": "action_delay",
+      "magnitude": 1,
+      "fixed_data_path": "/nfs4/jhkim/repos/tdmpc2/results/stage3b-generalization/data/action_delay/set-0.pt"
+    },
+    {
+      "type": "action_delay",
+      "magnitude": 2,
+      "fixed_data_path": "/nfs4/jhkim/repos/tdmpc2/results/stage3b-generalization/data/stage3b2/action_delay/2/20261106T050215Z-45b620fa.pt"
+    },
+    {
+      "type": "action_gain",
+      "magnitude": 0.7,
+      "fixed_data_path": "/nfs4/jhkim/repos/tdmpc2/results/stage3b-generalization/data/action_gain/set-0.pt"
+    },
+    {
+      "type": "action_gain",
+      "magnitude": 0.3,
+      "fixed_data_path": "/nfs4/jhkim/repos/tdmpc2/results/stage3b-generalization/data/stage3b2/action_gain/0.3/20261106T050215Z-45b620fa.pt"
+    },
+    {
+      "type": "object_mass",
+      "magnitude": 1.5,
+      "fixed_data_path": "/nfs4/jhkim/repos/tdmpc2/results/stage3b-generalization/data/object_mass/set-0.pt"
+    },
+    {
+      "type": "object_mass",
+      "magnitude": 3.0,
+      "fixed_data_path": "/nfs4/jhkim/repos/tdmpc2/results/stage3b-generalization/data/stage3b2/object_mass/3/20261106T050215Z-45b620fa.pt"
+    },
+    {
+      "type": "contact_friction",
+      "magnitude": 0.5,
+      "fixed_data_path": "/nfs4/jhkim/repos/tdmpc2/results/stage3b-generalization/data/contact_friction/set-0.pt"
+    },
+    {
+      "type": "contact_friction",
+      "magnitude": 0.3,
+      "fixed_data_path": "/nfs4/jhkim/repos/tdmpc2/results/stage3b-generalization/data/stage3b2/contact_friction/0.3/20261106T050215Z-45b620fa.pt"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+# Compatible with the ManiSkill2 0.4.1 environment's numpy<1.24 constraint.
+numpy==1.23.5
+matplotlib==3.7.5
+contourpy==1.1.1

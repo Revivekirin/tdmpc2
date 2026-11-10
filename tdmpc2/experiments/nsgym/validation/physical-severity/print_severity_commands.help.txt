@@ -1,0 +1,12 @@
+usage: print_severity_commands.py [-h] [--output-root OUTPUT_ROOT]
+                                  [--phase {all,setup,smoke,physical,diagnostics,planning,frozen,nonstationary,optional}]
+                                  [--python PYTHON] [--dry-run]
+
+Print commands validated by the actual stage parser and versioned protocol.
+
+options:
+  -h, --help            show this help message and exit
+  --output-root OUTPUT_ROOT
+  --phase {all,setup,smoke,physical,diagnostics,planning,frozen,nonstationary,optional}
+  --python PYTHON
+  --dry-run             Append --dry-run to each generated stage command

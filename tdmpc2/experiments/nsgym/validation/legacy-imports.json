@@ -1,0 +1,31 @@
+{
+  "gymnasium": "0.29.1",
+  "imports": {
+    "common.stage3a": "PASS",
+    "common.decision_ttt": "PASS",
+    "common.shift_protocol": "PASS",
+    "adapt_shift": "PASS",
+    "envs.wrappers.dynamics_shift": "PASS",
+    "envs.maniskill": "UNAVAILABLE: ModuleNotFoundError: No module named 'gym'",
+    "envs.dmcontrol": "UNAVAILABLE: ModuleNotFoundError: No module named 'dm_control'",
+    "envs.metaworld": "UNAVAILABLE: ModuleNotFoundError: No module named 'gym'",
+    "envs.myosuite": "PASS",
+    "envs.mujoco": "PASS"
+  },
+  "tasks": {
+    "mujoco-halfcheetah": {
+      "status": "PASS",
+      "shape": [
+        17
+      ],
+      "reward": -0.08234837651252747
+    },
+    "mujoco-walker": {
+      "status": "PASS",
+      "shape": [
+        17
+      ],
+      "reward": 0.9978284239768982
+    }
+  }
+}

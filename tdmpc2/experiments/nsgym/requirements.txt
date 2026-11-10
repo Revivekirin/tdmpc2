@@ -1,0 +1,10 @@
+# Separate Python 3.11 environment. Do not install over docker/environment.yaml.
+# Commit is authoritative: shallow upstream checkouts can report 0.0.post1.
+ns_gym @ git+https://github.com/scope-lab-vu/ns_gym.git@127df4b714fe4fcf680721d8e9278a96090acd7e
+gymnasium[mujoco]==1.3.0
+mujoco==3.3.7
+numpy==2.4.6
+torch==2.14.0
+hydra-core==1.3.2
+pytest==9.1.1
+imageio==2.38.1
