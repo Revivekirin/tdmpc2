@@ -2,6 +2,7 @@
 import gymnasium as gym
 
 from .halfcheetah import HalfCheetah
+from .pusher import Pusher
 
 
 class TDMPC2Wrapper(gym.Wrapper):
@@ -26,7 +27,8 @@ def make_env(cfg, *, recorder=None):
     Keep NS-Gym dependencies out of all existing environment imports. Uses the
     existing TensorWrapper without changing agent, model, MPC or adaptation.
     """
-    if cfg.task != 'nsgym-halfcheetah':
+    environments = {'nsgym-halfcheetah': HalfCheetah, 'nsgym-pusher': Pusher}
+    if cfg.task not in environments:
         raise ValueError(f'Unknown NS-Gym task: {cfg.task}')
     if cfg.get('multitask', False) or cfg.get('obs', 'state') != 'state':
         raise ValueError('NS-Gym initially supports single-task state observations only')
@@ -34,8 +36,8 @@ def make_env(cfg, *, recorder=None):
         raise ValueError('Use the nsgym config; legacy dynamics_shift is not supported here')
     from ..wrappers.tensor import TensorWrapper
     settings = dict(cfg.get('nsgym', {}))
-    env = TensorWrapper(TDMPC2Wrapper(HalfCheetah(seed=int(cfg.seed), recorder=recorder,
-                                                **settings)))
+    env = TensorWrapper(TDMPC2Wrapper(environments[cfg.task](seed=int(cfg.seed),
+                                                        recorder=recorder, **settings)))
     # Explicit attributes avoid Gymnasium >=1.0's removal of wrapper forwarding.
     env.max_episode_steps = env.env.max_episode_steps
     cfg.obs_shape = {cfg.get('obs', 'state'): env.observation_space.shape}

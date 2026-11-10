@@ -9,9 +9,9 @@ The new runners are `scripts/validate_physics.py`, `scripts/train_nominal.py`, `
 | Controlled physics | Physically validated, PASS | `results/nsgym/physical-validation-v3/` |
 | Pipeline tests | 27 passed, 1 skipped | `validation/pipeline/tests.txt` |
 | Real WorldModel | CPU forward inference tested | `test_real_world_model_cpu_forward_compatibility` |
-| Replay/optimizer training smoke | BLOCKED, not passed | Original implementation requires CUDA; host reports CUDA unavailable |
-| Nominal controller quality | Not established | No nominal-trained checkpoint exists |
-| Frozen evaluator | Implemented, statistics unit-tested | End-to-end trained-checkpoint test skipped without CUDA |
+| Replay/optimizer training smoke | PASS on server4 (user-provided verification) | `completion.json`: 35 transitions, 34 updates, integration PASS; checkpoint `checkpoint-000000035` |
+| Nominal controller quality | Strong interim 500k evidence; full quality gate not yet established | 10 held-out nominal returns average 12,273.6 versus paired random-action reference −256.4 (local reproduction) |
+| Frozen evaluator | PASS on server4 (user-provided verification) | `integrity.json`: status PASS, matching learned-state hashes, zero evaluation updates |
 | Frozen scientific robustness | Not evaluated | Requires nominal training and controller-quality evidence |
 | Legacy regression | 123 passed, 4 skipped, 1 pre-existing failure | `validation/pipeline/legacy-tests.txt` |
 
@@ -160,6 +160,47 @@ python -m pytest experiments/nsgym/tests/test_ensemble_device.py -q
 python experiments/nsgym/scripts/train_nominal.py --smoke --output results/nsgym/server4-cu126-smoke-02
 ```
 
-Local focused checks: 7 passed, 1 CUDA skip. This fixes the locally reproduced initialization error; the full CUDA training smoke still needs to be rerun on server4.
+Local focused checks: 7 passed, 1 CUDA skip. This fixes the locally reproduced initialization error.
 
-Full post-fix NS-Gym suite: **30 passed, 1 CUDA-dependent skip** (`validation/pipeline/meta-fix-nsgym-tests.txt`). Legacy suite: **123 passed, 4 skipped, the same 1 pre-existing failure** (`validation/pipeline/meta-fix-legacy-tests.txt`). The focused patch is `validation/pipeline/ensemble-meta-fix.patch`; apply it only to a server checkout that still contains the original template registration.
+Full post-fix NS-Gym suite: **30 passed, 1 CUDA-dependent skip** (`validation/pipeline/meta-fix-nsgym-tests.txt`). Legacy suite: **123 passed, 4 skipped, the same 1 pre-existing failure** (`validation/pipeline/meta-fix-legacy-tests.txt`). The focused patch is `experiments/nsgym/validation/pipeline/ensemble-meta-fix.patch` relative to the repository root; apply it only to a server checkout that still contains the original template registration.
+
+## Reported server4 CUDA smoke outcome (2026-11-08)
+
+The user reported PyTorch `2.14.0+cu126`, bundled CUDA `12.6`, RTX A5000 detection and a passing CUDA execution check. The first server training smoke failed while moving registered meta placeholders to CUDA. In the subsequent run, `git apply ensemble-meta-fix.patch` failed because that file is not at the repository root, but `train_nominal.py --smoke --output results/nsgym/server4-cu126-smoke-02` completed and printed `results/nsgym/server4-cu126-smoke-02/checkpoint-000000035`. The successful run indicates the server checkout already contained the compatibility fix; the patch is not needed for that checkout. This account is based on the supplied terminal output; the local Mac cannot inspect the server result directory directly. A smoke checkpoint establishes software integration, not controller quality.
+
+The next bounded server-side check is a frozen, paired integration sweep using that checkpoint:
+
+```bash
+python experiments/nsgym/scripts/evaluate_frozen.py \
+  --checkpoint results/nsgym/server4-cu126-smoke-02/checkpoint-000000035 \
+  --integration-only --episodes 2 \
+  --output results/nsgym/server4-cu126-frozen-smoke-01
+python - <<'PY'
+import json
+from pathlib import Path
+training = Path('results/nsgym/server4-cu126-smoke-02')
+frozen = Path('results/nsgym/server4-cu126-frozen-smoke-01')
+completion = json.loads((training / 'completion.json').read_text())
+quality = json.loads((training / 'quality.json').read_text())
+integrity = json.loads((frozen / 'integrity.json').read_text())
+assert completion['integration'] == 'PASS'
+assert completion['environment_transitions'] == 35
+assert completion['gradient_updates'] > 0
+assert quality['scientific_sweep_eligible'] is False
+assert integrity['status'] == 'PASS'
+assert integrity['optimizer_updates_during_evaluation'] == 0
+assert len((frozen / 'episodes.jsonl').read_text().splitlines()) == 6
+print('training:', completion)
+print('frozen integrity:', integrity)
+PY
+```
+
+Use fresh output directories for retries; these paths are examples tied to the reported run. The full nominal training and scientific frozen sweep remain unrun.
+
+The user subsequently reported successful completion of the frozen integration command, which printed `results/nsgym/server4-cu126-frozen-smoke-01`. Their server-side verification read `completion.json` and `integrity.json`: 35 transitions, 34 gradient updates, training integration PASS, frozen integrity PASS, identical before/after learned-state hashes and zero optimizer updates during evaluation. The supplied `--check-config` resolved the declared one-million-transition nominal configuration, server Git HEAD was `fcdca8938fda2e8e412798a5266a19eae2d27e0f`, and `git status --short` was empty. Server `/nfs4` had 123 GB available at 97% use before full training; monitor free space as checkpoints accumulate. This local checkout cannot directly read the remote output. Full training remains separate and is not resumable exactly from periodic model checkpoints.
+
+## Interim nominal controller inspection at 500,000 transitions
+
+The server's ten-seed nominal-only integration evaluation was copied to `results/nsgym/nominal-500k-inspection-01/`. The checkpoint identity and before/after learned-state hashes pass. Mean policy return is 12,273.60 (95% seed-bootstrap interval 12,084.64–12,441.31), mean forward velocity is 12.675 m/s, and episodes all reach the 1,000-step truncation. Using the same ten seeds and the runner's seeded uniform random-action procedure, the local matching NS-Gym source commit, Gymnasium 1.3.0, MuJoCo 3.3.7 and NumPy 2.4.6 produced mean random return −256.44. Mean paired policy-minus-random gain is 12,530.04 (95% percentile bootstrap interval 12,365.32–12,677.69). This strongly refutes the impression that the 500k policy behaves like random actions, but is one interim checkpoint and does not satisfy the predeclared final three-evaluation gate. `frozen_profile.png` has one point because only mass scale 1.0 was requested; it is not a learning curve.
+
+The exported `reward_run` column is zero because HalfCheetah-v5's info omits that key and the existing TD-MPC2 `TensorWrapper` supplies a default zero. The actual scalar reward is correct: average return ≈ `forward_velocity_mean * 1000 + reward_control_mean` = 12,675.02 − 401.42 = 12,273.60. The local adapter now reconstructs the missing diagnostic component from scalar reward minus control cost; tests verify the decomposition. Original 500k evaluation artifacts remain unchanged, and this local reporting fix does not change training reward, observations or learning algorithms. Do not infer a completed full-run quality gate from this interim inspection.

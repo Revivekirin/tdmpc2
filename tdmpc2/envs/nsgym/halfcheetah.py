@@ -126,7 +126,13 @@ class HalfCheetah(gym.Wrapper):
         self._record('step', self._step)
         self._step += 1
         self._needs_reset = bool(terminated or truncated)
-        return self._state(obs), reward, bool(terminated), bool(truncated), self._public_info(info)
+        public_info = self._public_info(info)
+        # HalfCheetah-v5 reports control cost but may omit the forward-reward
+        # component. Reconstruct that diagnostic from the scalar reward so
+        # evaluation summaries do not silently record it as zero.
+        if 'reward_run' not in public_info and 'reward_ctrl' in public_info:
+            public_info['reward_run'] = reward - float(public_info['reward_ctrl'])
+        return self._state(obs), reward, bool(terminated), bool(truncated), public_info
 
     def close(self):
         self._needs_reset = True

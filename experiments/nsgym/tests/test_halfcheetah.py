@@ -35,6 +35,17 @@ def test_nominal_matches_unwrapped_gymnasium():
         raw.close()
 
 
+def test_reported_reward_components_match_scalar_reward():
+    env = HalfCheetah()
+    try:
+        env.reset(seed=17)
+        _, reward, _, _, info = env.step(np.full(6, .2))
+        assert info['reward_run'] + info['reward_ctrl'] == pytest.approx(reward)
+        assert info['reward_run'] == pytest.approx(info['x_velocity'])
+    finally:
+        env.close()
+
+
 @pytest.mark.parametrize('mode', ['nominal', 'fixed', 'abrupt', 'reversible'])
 def test_timing_reset_and_reproducibility(mode):
     records = []
