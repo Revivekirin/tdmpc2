@@ -45,6 +45,17 @@ python "$RUNNER" run --checkpoint "$CHECKPOINT" --method frozen --schedule fixed
 python "$RUNNER" run --checkpoint "$CHECKPOINT" --method frozen --schedule abrupt --output "$RUNS/abrupt-frozen"
 ```
 
+## Resume an interrupted stage
+
+If the stage output exists but has no top-level `completion.json`, rerun the same command with `--resume`. Completed condition directories with `PASS`, matching configuration, checkpoint and unchanged model/adapter sources are skipped. An incomplete condition is moved intact to `OUT/interrupted/` and that condition restarts from the original 750k checkpoint; a partial episode is never continued. This keeps the analysis input free of incomplete duplicates.
+
+```bash
+python "$RUNNER" run --checkpoint "$CHECKPOINT" --method frozen --schedule abrupt \
+  --output "$RUNS/abrupt-frozen" --resume
+```
+
+Do not use `--resume` after the stage's top-level completion is `PASS`.
+
 ## Fixed severity online adaptation
 
 ```bash

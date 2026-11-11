@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT = ROOT/'experiments/nsgym/configs/dynamics_only_ttt.json'
@@ -291,6 +292,54 @@ def evaluate_snapshot(a):
     js(out/'completion.json',dict(status='PASS',adapter_hash_before=before,adapter_hash_after=tree_hash(adapter.state_dict()),heldout_leakage=False))
 
 
+def run_experiment(a,c):
+    root=Path(a.output)
+    if a.resume:
+        if not root.is_dir():raise ValueError(f'Resume output does not exist: {root}')
+        if (root/'completion.json').exists():raise ValueError(f'Run already complete: {root}')
+    else:
+        root.mkdir(parents=True,exist_ok=False)
+    current_sources=source_hashes(a) if a.resume else None
+    skipped=[];restarted=[]
+    for cond in c['conditions']:
+        for method in (c['methods'] if a.method=='all' else [a.method]):
+            for seed in c['adaptation_seeds']:
+                name=f"{cond['parameter']}-k{cond['severity']:g}-{method}-seed{seed}"
+                target=root/name
+                identity=dict(**cond,method=method,schedule=a.schedule,adaptation_seed=seed,synthetic=a.synthetic)
+                if a.resume and target.exists():
+                    manifest=read(target/'manifest.json') if (target/'manifest.json').is_file() else None
+                    if manifest is not None:
+                        if manifest.get('identity')!=identity or manifest.get('configuration')!=c or manifest.get('checkpoint_sha256')!=(None if a.synthetic else SHA):
+                            raise ValueError(f'Existing condition identity/configuration differs: {target}')
+                        # This change adds resume bookkeeping only. Every algorithm,
+                        # environment and configuration source must still match.
+                        old_sources=manifest.get('source_hashes',{})
+                        for path,value in current_sources.items():
+                            if path.endswith('/scripts/run_dynamics_only_ttt.py'):continue
+                            if old_sources.get(path)!=value:raise ValueError(f'Source changed for {target}: {path}')
+                    completion=target/'completion.json'
+                    if completion.is_file() and read(completion).get('status')=='PASS':
+                        done=read(completion)
+                        if manifest is None or done.get('identity')!=identity or done['metrics']['adaptation_transitions']!=c['horizon']*c['episodes_per_stream']:
+                            raise ValueError(f'Invalid completed condition: {target}')
+                        if not (target/'online_steps.csv').is_file() or not (target/'online_episodes.csv').is_file():
+                            raise ValueError(f'Completed condition files missing: {target}')
+                        skipped.append(name);print(f'SKIP PASS {name}',flush=True);continue
+                    # Preserve partial data outside RUNS so aggregation cannot
+                    # accidentally ingest an interrupted duplicate.
+                    archive=root.parent.parent/'interrupted'
+                    archive.mkdir(parents=True,exist_ok=True)
+                    saved=archive/f'{root.name}-{name}-{uuid4().hex[:8]}'
+                    target.rename(saved)
+                    restarted.append(dict(condition=name,archived=str(saved)))
+                    print(f'ARCHIVED PARTIAL {target} -> {saved}',flush=True)
+                run_one(a,c,target,cond,method,a.schedule,seed)
+                print(f'PASS {name}',flush=True)
+    js(root/'completion.json',dict(status='PASS',synthetic=a.synthetic,configuration=c,
+        resumed=a.resume,skipped_completed=skipped,restarted_partial=restarted))
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('command',choices=['smoke','run','evaluate'])
@@ -299,21 +348,17 @@ def main():
     p.add_argument('--schedule',choices=['fixed','abrupt'],default='fixed')
     p.add_argument('--synthetic',action='store_true',help='CPU fixture only; smoke or evaluation of synthetic snapshots')
     p.add_argument('--snapshot');p.add_argument('--fixed-data',help='Original Frozen stage directory containing episodes.csv and raw NPZ')
+    p.add_argument('--resume',action='store_true',help='Resume an incomplete run, preserving PASS conditions and archiving partial ones')
     p.add_argument('--dry-run',action='store_true')
     a=p.parse_args()
     if a.synthetic and a.command=='run':p.error('Synthetic is restricted to smoke')
+    if a.resume and a.command!='run':p.error('--resume is supported only for run')
     if a.command=='evaluate' and not a.snapshot:p.error('--snapshot required')
     c=configuration(a)
     if a.dry_run:
         print(json.dumps(dict(command=a.command,configuration=c,synthetic=a.synthetic),indent=2));return
     dependencies()
     if a.command=='evaluate':evaluate_snapshot(a);return
-    root=Path(a.output);root.mkdir(parents=True,exist_ok=False)
-    for cond in c['conditions']:
-        for method in (c['methods'] if a.method=='all' else [a.method]):
-            for seed in c['adaptation_seeds']:
-                name=f"{cond['parameter']}-k{cond['severity']:g}-{method}-seed{seed}"
-                run_one(a,c,root/name,cond,method,a.schedule,seed)
-    js(root/'completion.json',dict(status='PASS',synthetic=a.synthetic,configuration=c))
+    run_experiment(a,c)
 
 if __name__=='__main__':main()

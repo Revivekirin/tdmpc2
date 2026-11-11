@@ -50,4 +50,27 @@ class Integration(unittest.TestCase):
         with t.torch.no_grad():agent.model._reward.weight.add_(1)
         with self.assertRaises(AssertionError):adapter.assert_fixed()
 
+    def test_resume_preserves_pass_and_archives_partial(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'runs'/'fixed-frozen'
+            root.mkdir(parents=True)
+            a=SimpleNamespace(config=str(t.DEFAULT),command='smoke',synthetic=True,
+                checkpoint='',output=str(root),method='frozen',schedule='fixed',resume=True)
+            c=t.configuration(a);seed=c['adaptation_seeds'][0]
+            names=[]
+            for cond in c['conditions']:
+                name=f"{cond['parameter']}-k{cond['severity']:g}-frozen-seed{seed}"
+                names.append(name)
+                t.run_one(a,c,root/name,cond,'frozen','fixed',seed)
+            preserved=(root/names[0]/'completion.json').read_bytes()
+            (root/names[1]/'completion.json').unlink()  # interrupted after writing data
+            t.run_experiment(a,c)
+            result=t.read(root/'completion.json')
+            self.assertEqual(result['status'],'PASS')
+            self.assertEqual(result['skipped_completed'],[names[0]])
+            self.assertEqual(len(result['restarted_partial']),1)
+            self.assertEqual((root/names[0]/'completion.json').read_bytes(),preserved)
+            self.assertTrue(Path(result['restarted_partial'][0]['archived']).is_dir())
+            self.assertEqual(t.read(root/names[1]/'completion.json')['status'],'PASS')
+
 if __name__=='__main__':unittest.main()
