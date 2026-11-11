@@ -1,6 +1,6 @@
 # Server execution commands
 
-Run manually in tdmpc2-nsgym. Existing source results and checkpoints are read-only. Every output below must be new; choose a new suffix for reruns. The full evaluation budget is large (21.6million held-out transitions per schedule); commands do not run until you execute them.
+Run manually in tdmpc2-nsgym from the inner project root `/home/jhkim/repos/tdmpc2`. The enclosing Git checkout root is `/home/jhkim/repos`; both paths exist on server4. Existing source results and checkpoints are read-only. Every output below must be new; choose a new suffix for reruns. The full evaluation budget is large (21.6million held-out transitions per schedule); commands do not run until you execute them.
 
 ## Location and CLI
 
@@ -10,6 +10,7 @@ RUNNER=experiments/nsgym/scripts/run_dynamics_only_ttt.py
 CHECKPOINT=/nfs4/jhkim/repos/tdmpc2/results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000
 REFERENCE=/nfs4/jhkim/repos/tdmpc2/results/nsgym/physical-severity-750k-v1
 OUT=/nfs4/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1
+RUNS="$OUT/runs"
 test -f "$RUNNER" && test -f "$CHECKPOINT/model.pt"
 sha256sum "$CHECKPOINT/model.pt"
 python "$RUNNER" --help
@@ -40,22 +41,22 @@ python -m unittest discover -s experiments/nsgym/tests -p test_dynamics_only_ttt
 ## Frozen baseline
 
 ```bash
-python "$RUNNER" run --checkpoint "$CHECKPOINT" --method frozen --schedule fixed --output "$OUT/fixed-frozen"
-python "$RUNNER" run --checkpoint "$CHECKPOINT" --method frozen --schedule abrupt --output "$OUT/abrupt-frozen"
+python "$RUNNER" run --checkpoint "$CHECKPOINT" --method frozen --schedule fixed --output "$RUNS/fixed-frozen"
+python "$RUNNER" run --checkpoint "$CHECKPOINT" --method frozen --schedule abrupt --output "$RUNS/abrupt-frozen"
 ```
 
 ## Fixed severity online adaptation
 
 ```bash
-python "$RUNNER" run --checkpoint "$CHECKPOINT" --method decision --schedule fixed --output "$OUT/fixed-decision"
-python "$RUNNER" run --checkpoint "$CHECKPOINT" --method episode --schedule fixed --output "$OUT/fixed-episode"
+python "$RUNNER" run --checkpoint "$CHECKPOINT" --method decision --schedule fixed --output "$RUNS/fixed-decision"
+python "$RUNNER" run --checkpoint "$CHECKPOINT" --method episode --schedule fixed --output "$RUNS/fixed-episode"
 ```
 
 ## Abrupt online adaptation
 
 ```bash
-python "$RUNNER" run --checkpoint "$CHECKPOINT" --method decision --schedule abrupt --output "$OUT/abrupt-decision"
-python "$RUNNER" run --checkpoint "$CHECKPOINT" --method episode --schedule abrupt --output "$OUT/abrupt-episode"
+python "$RUNNER" run --checkpoint "$CHECKPOINT" --method decision --schedule abrupt --output "$RUNS/abrupt-decision"
+python "$RUNNER" run --checkpoint "$CHECKPOINT" --method episode --schedule abrupt --output "$RUNS/abrupt-episode"
 ```
 
 ## Held-out evaluation, all predefined snapshots
@@ -68,7 +69,7 @@ set -eu
 for schedule in fixed abrupt; do
   if [ "$schedule" = fixed ]; then DATA="$REFERENCE/frozen"; else DATA="$REFERENCE/nonstationary-abrupt"; fi
   for method in frozen decision episode; do
-    for RUN in "$OUT/$schedule-$method"/*; do
+    for RUN in "$RUNS/$schedule-$method"/*; do
       [ -d "$RUN" ] || continue
       NAME="${RUN##*/}"
       for SNAP in "$RUN"/snapshot-*.pt; do
@@ -89,7 +90,7 @@ For a single snapshot, use the same evaluate command with its explicit path. Fix
 
 ```bash
 python experiments/nsgym/scripts/analyze_dynamics_only_ttt.py \
-  --evaluations "$OUT/evaluations" --runs "$OUT" --output "$OUT/analysis"
+  --evaluations "$OUT/evaluations" --runs "$RUNS" --output "$OUT/analysis"
 ```
 
 Outputs include per_seed_evaluation.csv, adaptation_seed_means.csv, seed_summary.csv, paired improvement and nominal retention curves, severity_return_improvement.png, interaction_gradient_cost.png, held-out shift_aligned plots, and separate online_episode_* plots. Empty panels indicate missing conditions; do not claim a complete sweep from partial output. Synthetic and actual-checkpoint evaluations cannot be mixed.

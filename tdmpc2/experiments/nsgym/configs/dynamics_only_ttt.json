@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "methods": ["frozen", "decision", "episode"],
+  "schedules": ["fixed", "abrupt"],
+  "horizon": 1000,
+  "episodes_per_stream": 3,
+  "snapshot_budgets": [0, 250, 1000, 2000, 3000],
+  "onset": 250,
+  "lr": 0.0001,
+  "batch_size": 64,
+  "warmup": 64,
+  "capacity": 10000,
+  "grad_clip": 10.0,
+  "consistency_coef": 1.0,
+  "update_every_decisions": 25,
+  "updates_per_episode": 40,
+  "adaptation_stream_split": "validation",
+  "heldout_split": "evaluation",
+  "fixed_data_split": "evaluation",
+  "seed_mapping": "Existing validation seeds initialize three independent adaptation environment streams. Only first reset is seeded; later resets advance that stream. Calibration seeds remain reserved for physical calibration. No new seeds or severities selected.",
+  "persistence": "Predictor, Adam, replay and global decision counter persist across the three episodes of one condition/method/stream. Physics schedule and planner warm start reset each episode. All learned state resets to 750k for each new run.",
+  "snapshot_semantics": "After transition and permitted updates; at episode end, after episode-wise updates. Evaluation-only snapshots, not exact mid-episode continuation."
+}
