@@ -1,5 +1,7 @@
 # Server execution commands
 
+For the current **final 3,000-transition Decision versus existing Frozen** benchmark, use `TTT_BENCHMARK_STANDARD.md` and its single `ttt_benchmark.py` entry point. The all-snapshot evaluation loop below is the original broader protocol and is not required for that comparison.
+
 Run manually in tdmpc2-nsgym from the inner project root `/home/jhkim/repos/tdmpc2`. The enclosing Git checkout root is `/home/jhkim/repos`; both paths exist on server4. Existing source results and checkpoints are read-only. Every output below must be new; choose a new suffix for reruns. The full evaluation budget is large (21.6million held-out transitions per schedule); commands do not run until you execute them.
 
 ## Location and CLI
@@ -7,9 +9,9 @@ Run manually in tdmpc2-nsgym from the inner project root `/home/jhkim/repos/tdmp
 ```bash
 cd /home/jhkim/repos/tdmpc2
 RUNNER=experiments/nsgym/scripts/run_dynamics_only_ttt.py
-CHECKPOINT=/nfs4/jhkim/repos/tdmpc2/results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000
-REFERENCE=/nfs4/jhkim/repos/tdmpc2/results/nsgym/physical-severity-750k-v1
-OUT=/nfs4/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1
+CHECKPOINT=/home/jhkim/repos/tdmpc2/results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000
+REFERENCE=/home/jhkim/repos/tdmpc2/results/nsgym/physical-severity-750k-v1
+OUT=/home/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1
 RUNS="$OUT/runs"
 test -f "$RUNNER" && test -f "$CHECKPOINT/model.pt"
 sha256sum "$CHECKPOINT/model.pt"

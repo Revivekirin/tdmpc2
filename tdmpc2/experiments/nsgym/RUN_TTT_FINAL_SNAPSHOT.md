@@ -1,5 +1,7 @@
 # Server commands: final 3,000-transition Decision TTT
 
+For one stage-gated entry point and the benchmark contract for future tasks, use `TTT_BENCHMARK_STANDARD.md`. The commands below are the underlying HalfCheetah evaluator calls.
+
 Run in `/home/jhkim/repos/tdmpc2` (the inner TD-MPC2 project). The enclosing Git root on this server is `/home/jhkim/repos`. The new script must first be synced to `experiments/nsgym/scripts/evaluate_ttt_final.py` in the **inner project**. Use a fresh output suffix for reruns. These commands never start adaptation or Joint RL.
 
 ```bash

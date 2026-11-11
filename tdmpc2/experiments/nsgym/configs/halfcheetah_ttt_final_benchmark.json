@@ -1,0 +1,16 @@
+{
+  "benchmark_id": "nsgym-halfcheetah-750k-final-decision-v1",
+  "evaluator": "experiments/nsgym/scripts/evaluate_ttt_final.py",
+  "checkpoint": "results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000",
+  "checkpoint_sha256": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b",
+  "reference": "results/nsgym/physical-severity-750k-v1",
+  "runs": "results/nsgym/dynamics-only-750k-v1/runs",
+  "output": "results/nsgym/dynamics-only-750k-v1/final-snapshot-v1",
+  "reference_files": ["frozen/episodes.csv", "heldout-latent/latent_errors.csv"],
+  "run_completion_stages": ["fixed-frozen", "fixed-decision"],
+  "tests": [
+    "experiments/nsgym/tests/test_ttt_benchmark.py",
+    "experiments/nsgym/tests/test_dynamics_only_ttt.py",
+    "experiments/nsgym/tests/test_ttt_final.py"
+  ]
+}
