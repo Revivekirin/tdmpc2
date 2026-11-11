@@ -78,6 +78,22 @@ class PipelineTests(unittest.TestCase):
         self.assertNotEqual(process.returncode,0)
         self.assertIn('Discovery is BLOCKED',process.stderr)
         self.assertFalse(nominal.exists())
+    def test_explicit_run_on_separate_mount_overrides_search_root(self):
+        project=self.root/'project';project.mkdir()
+        run=self.root/'external-mount'/'reacher-full';run.mkdir(parents=True)
+        (run/'training.jsonl').write_text(json.dumps(dict(environment_transitions=3,gradient_updates=2,consistency_loss=1.))+'\n')
+        for step in (10,20,30):
+            cp=run/f'checkpoint-{step:09d}';cp.mkdir()
+            (cp/'model.pt').write_bytes(b'model'+bytes([step]))
+            (cp/'optimizers.pt').write_bytes(b'optim'+bytes([step]))
+            r.write(cp/'metadata.json',dict(config=dict(task='nsgym-reacher',nsgym=dict(mode='nominal',mass_scale=1.),seed_steps=2),
+                environment_transitions=step,model_sha256=r.sha(cp/'model.pt'),optimizer_sha256=r.sha(cp/'optimizers.pt')))
+        out=self.root/'discovery-selected';out.mkdir()
+        result=r.discover(project,self.c,out,run)
+        self.assertEqual(result['status'],'READY')
+        self.assertEqual(result['maximum_transitions'],30)
+        self.assertEqual(result['search_root'],str(run.resolve()))
+        self.assertEqual(len(result['validation_checkpoints']),3)
     def test_frozen_alias_metadata_and_plots(self):
         c=dict(self.c,evaluation_seeds=self.c['evaluation_seeds'][:2],calibration_seeds=self.c['calibration_seeds'][:1])
         frozen=self.root/'frozen';frozen.mkdir();probe=self.root/'probe';probe.mkdir()

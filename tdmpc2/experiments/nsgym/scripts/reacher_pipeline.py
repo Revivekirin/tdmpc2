@@ -207,7 +207,9 @@ def probe(c,out,a=None):
     return rr
 
 def discover(search,c,out,run=None):
-    search=Path(search).resolve()
+    # An explicit training run is authoritative even when its data mount is
+    # outside the project checkout used for --search-root.
+    search=Path(run if run else search).resolve()
     if not search.is_dir():raise ValueError(f'Search root does not exist: {search}')
     candidates=[];errors=[]
     for p in search.rglob('metadata.json'):

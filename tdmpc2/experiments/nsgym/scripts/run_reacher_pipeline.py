@@ -11,7 +11,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('stage',choices=['discover','nominal','inventory','probe','frozen','smoke','adapt','predict','control','aggregate'])
     p.add_argument('--config',default=str(r.DEFAULT));p.add_argument('--output',required=True)
-    p.add_argument('--search-root',default=str(r.ROOT),help='Search the full project root by default');p.add_argument('--run',help='Explicit discovered training run when multiple exist')
+    p.add_argument('--search-root',default=str(r.ROOT),help='Search the full project root by default; --run overrides this root');p.add_argument('--run',help='Search this exact training run, including when it is on another mount')
     p.add_argument('--discovery');p.add_argument('--selection',help='R0 selected_reacher_checkpoint.json; immutable checkpoint identity')
     p.add_argument('--inventory');p.add_argument('--probe');p.add_argument('--frozen');p.add_argument('--smoke')
     p.add_argument('--snapshot');p.add_argument('--runs',help='Adaptation matrix root for prediction/control evaluation')
@@ -51,8 +51,10 @@ def main():
     try:
         if a.stage=='discover':
             result=r.discover(a.search_root,c,out,a.run)
+            summary={key:result[key] for key in ('status','search_root','runs','selected_run','maximum_transitions','validation_checkpoints','reason')}
             if result['status']=='BLOCKED':
-                r.write(out/'completion.json',dict(status='BLOCKED',reason=result['reason']));print(json.dumps(result,indent=2));return
+                r.write(out/'completion.json',dict(status='BLOCKED',reason=result['reason']));print(json.dumps(summary,indent=2));return
+            print(json.dumps(summary,indent=2))
         elif a.stage=='nominal':r.nominal(c,a.discovery,out)
         elif a.stage=='inventory':r.inventory(c,out)
         elif a.stage=='probe':
