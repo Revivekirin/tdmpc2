@@ -1,0 +1,11 @@
+# Reacher nominal validation
+
+Local status: BLOCKED. A recursive search of the entire local repository found no Reacher training checkpoint metadata/model/optimizer triplets. The reported 9,500,000 transitions remain unverified. No checkpoint has been selected, and no nominal control performance is claimed.
+
+`run_reacher_pipeline.py discover` discovers actual paths and verifies model/optimizer SHA256 and nominal configuration. Multiple runs require explicit `--run`. At least three checkpoints are required; candidates span thirds of available training, including the latest. `nominal` evaluates 20 identical independent validation seeds per candidate. Select maximum mean return minus one sample standard error; ties prefer the earlier checkpoint. Shifted results never participate. The selected JSON records absolute path, SHA, configuration, nominal seed results summary and original training provenance.
+
+The entire training JSONL is streamed with bounded 50k-transition bins (mean/median/std). Update-count mismatches, nonfinite metrics, last transition/update/wall-time and nominal evaluation means are recorded. Random/zero-action evaluation baselines are excluded from the policy curve. The final-minus-best nominal evaluation difference exposes possible late regression, but no arbitrary plateau threshold is declared. Loss convergence is not evidence of reaching quality.
+
+Actual code: zero-based `step <= seed_steps` uses random actions; the first update at transition `seed_steps+1` runs `seed_steps` optimizer updates, then one update per transition. Cumulative updates are transitions−1 thereafter. Reacher-v5 has 10 state observations, 2 normalized actions, horizon 50, dt 0.02. Base termination is false; TimeLimit truncation resets the episode. Training stores only true termination in replay, so TD targets bootstrap through truncation. Reward is negative post-transition fingertip-target norm times distance weight, plus negative squared action sum times control weight. No binary success is defined.
+
+Server execution generates the requested training plot, checkpoint per-seed CSV/comparison plot, selection JSON and measured validation report in a new output directory. Missing actual checkpoint data are not replaced with fixture results.

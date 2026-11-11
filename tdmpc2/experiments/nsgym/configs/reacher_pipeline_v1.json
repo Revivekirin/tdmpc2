@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "environment_id": "Reacher-v5",
+  "horizon": 50,
+  "families": {"D0": "joint0_damping", "D1": "joint1_damping", "M0": "body0_mass", "M1": "body1_mass"},
+  "severities": [0.5, 0.75, 1.0, 1.25, 1.5, 2.0],
+  "validation_seeds": [51000001,51000002,51000003,51000004,51000005,51000006,51000007,51000008,51000009,51000010,51000011,51000012,51000013,51000014,51000015,51000016,51000017,51000018,51000019,51000020],
+  "calibration_seeds": [52000001,52000002,52000003,52000004,52000005],
+  "adaptation_seeds": [53000001,53000002,53000003],
+  "evaluation_seeds": [54000001,54000002,54000003,54000004,54000005,54000006,54000007,54000008,54000009,54000010,54000011,54000012,54000013,54000014,54000015,54000016,54000017,54000018,54000019,54000020],
+  "snapshot_budgets": [0,500,1000,2000,5000,10000],
+  "methods": ["frozen", "decision"],
+  "batch_size": 64, "warmup": 64, "capacity": 10000, "lr": 0.0001,
+  "update_every_decisions": 25, "updates_per_episode": 2,
+  "consistency_coef": 1.0, "grad_clip": 10.0,
+  "selection_criterion": "max(mean_return - sample_std_return/sqrt(n)); ties prefer earlier checkpoint",
+  "ratio_floor": 1e-10,
+  "action_regime_thresholds": [0.25,0.75],
+  "mass_semantics": "official mass-only intervention, fixed rotational inertia; not uniform density scaling",
+  "budget_rule": "largest proposed budget fitting 24 GPU-hours for adaptation matrix, using bounded real-model smoke throughput; never performance"
+}
