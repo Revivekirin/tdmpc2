@@ -36,6 +36,16 @@ class Contracts(unittest.TestCase):
         with patch.object(joint.subprocess,'check_output',side_effect=['GPU-test, 100, 0\n','']):
             with self.assertRaises(RuntimeError):joint.gpu_status(0)
 
+    def test_explicit_sharing_allows_busy_gpu_but_preserves_memory_guard(self):
+        with patch.object(joint.subprocess,'check_output',side_effect=[
+                'GPU-test, 23164, 99\n','GPU-test, 3530262\nGPU-test, 3530735\n']):
+            result=joint.gpu_status(0,allow_shared=True)
+            self.assertEqual(result['other_pids'],[3530262,3530735])
+            self.assertTrue(result['allow_shared_gpu'])
+        with patch.object(joint.subprocess,'check_output',side_effect=[
+                'GPU-test, 100, 99\n','GPU-test, 3530262\n']):
+            with self.assertRaises(RuntimeError):joint.gpu_status(0,allow_shared=True)
+
     def test_only_original_optimizer_parameters_are_enabled(self):
         class Parameter:
             def requires_grad_(self,value):self.requires_grad=value

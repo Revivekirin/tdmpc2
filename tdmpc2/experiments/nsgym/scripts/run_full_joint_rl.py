@@ -28,8 +28,8 @@ def protocol():
                 automatic_heldout_evaluation=False)
 
 
-def gpu_status(index, minimum_mib=8192):
-    """Require a separate idle GPU; never signal another process."""
+def gpu_status(index, minimum_mib=8192, allow_shared=False):
+    """Check free memory and, unless explicitly shared, GPU occupancy."""
     query = subprocess.check_output(['nvidia-smi', f'--id={index}',
         '--query-gpu=uuid,memory.free,utilization.gpu', '--format=csv,noheader,nounits'], text=True)
     uuid, free, utilization = [x.strip() for x in query.strip().split(',')]
@@ -41,9 +41,11 @@ def gpu_status(index, minimum_mib=8192):
         if len(fields)==2 and fields[0]==uuid:
             if int(fields[1])==os.getpid():own=True
             else:other.append(int(fields[1]))
-    if other or int(free)<minimum_mib or (not own and int(utilization)>10):
+    occupied = bool(other) or (not own and int(utilization)>10)
+    if int(free)<minimum_mib or (occupied and not allow_shared):
         raise RuntimeError(f'GPU {index} unavailable: other PIDs={other}, free={free} MiB, utilization={utilization}%. No training started on this GPU.')
-    return dict(index=index, uuid=uuid, free_mib=int(free), utilization_percent=int(utilization), other_pids=other)
+    return dict(index=index, uuid=uuid, free_mib=int(free), utilization_percent=int(utilization),
+                other_pids=other, allow_shared_gpu=allow_shared, minimum_free_mib=minimum_mib)
 
 
 def sources():
@@ -203,14 +205,16 @@ def main():
     p.add_argument('command',choices=['plan','gpu-check','smoke','run','status'])
     p.add_argument('--checkpoint',type=Path)
     p.add_argument('--output',type=Path)
-    p.add_argument('--gpu',type=int,default=0,help='Physical nvidia-smi GPU index; must be idle')
+    p.add_argument('--gpu',type=int,default=0,help='Physical nvidia-smi GPU index')
+    p.add_argument('--allow-shared-gpu',action='store_true',
+                   help='Allow concurrent compute processes/high utilization; retain free-memory checks')
     p.add_argument('--smoke-result',type=Path,help='PASS smoke output from this runner revision')
     a=p.parse_args();c=protocol()
     if a.command=='plan':
         print(json.dumps(dict(protocol=c,streams=36,total_transitions=108000,total_updates=72036,
             smoke=dict(parameter='bthigh_damping',severity=2.,transitions=1004,updates=5)),indent=2));return
     if a.command=='gpu-check':
-        print(json.dumps(gpu_status(a.gpu),indent=2));return
+        print(json.dumps(gpu_status(a.gpu,allow_shared=a.allow_shared_gpu),indent=2));return
     if a.output is None:p.error('--output is required')
     if a.command=='status':
         done=list(a.output.glob('*/completion.json'))
@@ -227,7 +231,7 @@ def main():
         if smoke['status']!='PASS' or sm['command']!='smoke' or sm['source_hashes']!=sources() or sm['protocol']!=c:
             raise ValueError('Matching successful smoke is required')
         minimum=max(minimum,math.ceil(smoke['peak_reserved_mib']*1.5+2048))
-    gpu=gpu_status(a.gpu,minimum)
+    gpu=gpu_status(a.gpu,minimum,a.allow_shared_gpu)
     os.environ['CUDA_VISIBLE_DEVICES']=gpu['uuid']
     base.dependencies()
     a.output.mkdir(parents=True)
@@ -238,7 +242,7 @@ def main():
     passed=[];peak=0.
     for cond in conditions:
         for seed in seeds:
-            gpu_status(a.gpu,minimum)
+            gpu_status(a.gpu,minimum,a.allow_shared_gpu)
             identity=dict(**cond,adaptation_seed=seed,method='full_joint_rl',schedule='fixed')
             name=f'{cond["parameter"]}-k{cond["severity"]:g}-full-joint-seed{seed}'
             try:

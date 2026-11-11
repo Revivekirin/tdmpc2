@@ -10,7 +10,7 @@ This adaptation schedule is explicit: collect the first completed episode using 
 
 ## Server commands
 
-These paths use `/home/jhkim/repos/tdmpc2`. Do not stop PID 3530262. Choose an idle physical GPU index after inspecting `nvidia-smi`; the runner refuses any GPU with another compute PID even if memory is available. It additionally requires at least 8 GiB free and, for full training, 1.5× smoke peak reserved memory + 2 GiB. These checks are conservative admission checks, not a GPU reservation; every new condition checks again. If no idle GPU exists, leave this launcher unstarted until one is available.
+These paths use `/home/jhkim/repos/tdmpc2`. Do not stop PID 3530262 or any other existing process. The user explicitly authorized concurrent use of GPU 0: the commands below use `--allow-shared-gpu`, which permits other compute PIDs and high utilization. It retains the requirement for at least 8 GiB free and, for full training, 1.5× smoke peak reserved memory + 2 GiB. Sharing is recorded in the manifest and may slow both workloads. Without this option, the default requires an idle GPU. These checks are admission checks, not a GPU reservation; every new condition checks again.
 
 ```bash
 conda activate tdmpc2-nsgym
@@ -18,17 +18,17 @@ cd /home/jhkim/repos/tdmpc2
 RUNNER=experiments/nsgym/scripts/run_full_joint_rl.py
 CHECKPOINT=/home/jhkim/repos/tdmpc2/results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000
 JOINT=/home/jhkim/repos/tdmpc2/results/nsgym/full-joint-750k-v1
-GPU=0  # Change to an idle physical GPU after inspecting nvidia-smi.
+GPU=0
 nvidia-smi
 python "$RUNNER" --help
 python "$RUNNER" plan
-python "$RUNNER" gpu-check --gpu "$GPU"
+python "$RUNNER" gpu-check --gpu "$GPU" --allow-shared-gpu
 ```
 
 Real bounded smoke: damping 2×, first adaptation seed, 1,004 transitions and five original joint updates. It keeps production batch size, horizon and MPPI settings. It checks all six component hashes (including target Q), finite metrics/parameters, both Adam step increments, replay samples and checkpoint immutability. Local bookkeeping tests do not count as this smoke.
 
 ```bash
-python -u "$RUNNER" smoke --gpu "$GPU" --checkpoint "$CHECKPOINT" \
+python -u "$RUNNER" smoke --gpu "$GPU" --allow-shared-gpu --checkpoint "$CHECKPOINT" \
   --output "$JOINT/smoke-damping2"
 cat "$JOINT/smoke-damping2/completion.json"
 ```
@@ -37,14 +37,14 @@ After smoke PASS, choose **one** of the following foreground/background commands
 
 ```bash
 # Foreground 36-stream training:
-python -u "$RUNNER" run --gpu "$GPU" --checkpoint "$CHECKPOINT" \
+python -u "$RUNNER" run --gpu "$GPU" --allow-shared-gpu --checkpoint "$CHECKPOINT" \
   --smoke-result "$JOINT/smoke-damping2" --output "$JOINT/runs-fixed"
 ```
 
 ```bash
 # Alternative: guarded nohup launcher for the same 36 streams:
 bash experiments/nsgym/scripts/launch_full_joint_rl.sh \
-  "$GPU" "$CHECKPOINT" "$JOINT/smoke-damping2" "$JOINT/runs-fixed"
+  "$GPU" "$CHECKPOINT" "$JOINT/smoke-damping2" "$JOINT/runs-fixed" --allow-shared-gpu
 tail -n 50 -f "$JOINT/runs-fixed.log"
 ```
 
