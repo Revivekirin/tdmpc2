@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NS-Gym dynamics-only adaptation run manifest v1",
+  "type": "object",
+  "required": ["version", "identity", "configuration", "checkpoint_sha256", "source_revision", "source_hashes", "versions", "initial_model_hash", "initial_fixed_hash", "initial_auxiliary_hash", "snapshot_resume"],
+  "properties": {
+    "version": {"const": 1},
+    "identity": {
+      "type": "object",
+      "required": ["parameter", "severity", "method", "schedule", "adaptation_seed", "synthetic"],
+      "properties": {
+        "parameter": {"enum": ["bthigh_damping", "torso_mass"]},
+        "severity": {"enum": [0.5, 0.75, 1, 1.25, 1.5, 2]},
+        "method": {"enum": ["frozen", "decision", "episode"]},
+        "schedule": {"enum": ["fixed", "abrupt"]},
+        "adaptation_seed": {"type": "integer"},
+        "synthetic": {"type": "boolean"}
+      }
+    },
+    "configuration": {"type": "object", "required": ["snapshot_budgets", "adaptation_seeds", "evaluation_seeds", "persistence", "onset"]},
+    "checkpoint_sha256": {"type": ["string", "null"]},
+    "source_revision": {"type": "string"},
+    "source_hashes": {"type": "object"},
+    "versions": {"type": "object"},
+    "initial_model_hash": {"type": "string"},
+    "initial_fixed_hash": {"type": "string"},
+    "initial_auxiliary_hash": {"type": "string"},
+    "snapshot_resume": {"const": "evaluation_only"}
+  },
+  "allOf": [{"if": {"properties": {"identity": {"properties": {"synthetic": {"const": false}}}}}, "then": {"properties": {"checkpoint_sha256": {"const": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b"}}}}]
+}
