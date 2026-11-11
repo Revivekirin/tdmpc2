@@ -6,10 +6,10 @@ Run in `/home/jhkim/repos/tdmpc2` (the inner TD-MPC2 project). The enclosing Git
 conda activate tdmpc2-nsgym
 cd /home/jhkim/repos/tdmpc2
 FINAL_RUNNER=experiments/nsgym/scripts/evaluate_ttt_final.py
-CHECKPOINT=/nfs4/jhkim/repos/tdmpc2/results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000
-REFERENCE=/nfs4/jhkim/repos/tdmpc2/results/nsgym/physical-severity-750k-v1
-RUNS=/nfs4/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1/runs
-FINAL=/nfs4/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1/final-snapshot-v1
+CHECKPOINT=/home/jhkim/repos/tdmpc2/results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000
+REFERENCE=/home/jhkim/repos/tdmpc2/results/nsgym/physical-severity-750k-v1
+RUNS=/home/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1/runs
+FINAL=/home/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1/final-snapshot-v1
 test -f "$FINAL_RUNNER" && test -f "$CHECKPOINT/model.pt"
 python "$FINAL_RUNNER" --help
 sha256sum "$CHECKPOINT/model.pt"

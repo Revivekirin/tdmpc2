@@ -235,7 +235,7 @@ def load_adapted(a,c,path,expected):
 def evaluate_prediction(agent,adapter,condition,base,c):
     import numpy as np
     import torch
-    rows=[];frozen=Path(base['frozen_manifest']['output'])
+    rows=[]
     # Manifest may contain the original server path; resolve against the explicit
     # reference supplied to this command, not against a copied path string.
     frozen=Path(condition['reference'])/'frozen'
