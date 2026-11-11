@@ -207,8 +207,10 @@ def probe(c,out,a=None):
     return rr
 
 def discover(search,c,out,run=None):
+    search=Path(search).resolve()
+    if not search.is_dir():raise ValueError(f'Search root does not exist: {search}')
     candidates=[];errors=[]
-    for p in Path(search).rglob('metadata.json'):
+    for p in search.rglob('metadata.json'):
         if not (p.parent/'model.pt').is_file():continue
         try:
             m=read(p)
@@ -227,11 +229,17 @@ def discover(search,c,out,run=None):
         if len(indices)<3:indices=[0,len(available)//2,len(available)-1]
         validation=[available[i]['checkpoint'] for i in indices]
     else:validation=[]
-    result=dict(runs=runs,selected_run=chosen,candidates=candidates,validation_checkpoints=validation,errors=errors,
+    log_exists=bool(chosen and (Path(chosen)/'training.jsonl').is_file())
+    if not candidates:reason=f'No valid nominal Reacher checkpoint metadata/model/optimizer triplets found under {search}. Search the full project root or locate the training run first.'
+    elif chosen is None:reason=f'Multiple Reacher runs found under {search}; select one of the listed runs with --run.'
+    elif len(available)<3:reason=f'Only {len(available)} valid checkpoints in {chosen}; at least three are required.'
+    elif not log_exists:reason=f'Missing full training.jsonl in {chosen}; cannot complete the nominal convergence audit.'
+    else:reason=None
+    result=dict(search_root=str(search),runs=runs,selected_run=chosen,candidates=candidates,validation_checkpoints=validation,errors=errors,
         maximum_transitions=max((r['step'] for r in available),default=None),
-        status='READY' if len(validation)>=3 else 'BLOCKED',reason=None if len(validation)>=3 else 'Need one unambiguous run with at least three valid checkpoints; use --run to select a discovered run')
+        status='READY' if reason is None else 'BLOCKED',reason=reason)
     write(out/'discovery.json',result)
-    if chosen:training_curves(Path(chosen),out)
+    if chosen and log_exists:training_curves(Path(chosen),out)
     return result
 
 def training_curves(run,out):

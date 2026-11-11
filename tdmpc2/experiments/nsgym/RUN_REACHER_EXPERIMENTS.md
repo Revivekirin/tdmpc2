@@ -8,7 +8,7 @@ cd /home/jhkim/repos/tdmpc2
 RUNNER=experiments/nsgym/scripts/run_reacher_pipeline.py
 CFG=experiments/nsgym/configs/reacher_pipeline_v1.json
 OUT=/nfs4/jhkim/repos/tdmpc2/results/nsgym/reacher/preview-v1
-SEARCH=/nfs4/jhkim/repos/tdmpc2/results/nsgym
+SEARCH=/nfs4/jhkim/repos/tdmpc2
 python "$RUNNER" --help
 ```
 
@@ -19,7 +19,7 @@ python "$RUNNER" discover --config "$CFG" --search-root "$SEARCH" --output "$OUT
 cat "$OUT/discovery/discovery.json"
 ```
 
-If discovery is BLOCKED, inspect its reason. For multiple runs, repeat into a new discovery directory with `--run /actual/discovered/run`, and use that new discovery JSON below. No checkpoint path is fabricated. The remote claim of 9.5M transitions must be checked against this manifest and full training audit.
+If discovery is BLOCKED, inspect its reason and do not run nominal. The project-root search includes `results/`, `outputs/` and other possible training locations. For multiple runs, repeat into a new discovery directory with `--run /actual/discovered/run`, and use that new discovery JSON below. If no candidates exist, inspect actual training artifacts; the nominal loader requires `checkpoint-*/metadata.json`, `model.pt`, `optimizers.pt` and the run's `training.jsonl`. No checkpoint path is fabricated. The remote claim of 9.5M transitions must be checked against this manifest and full training audit.
 
 ```bash
 python "$RUNNER" nominal --config "$CFG" --discovery "$OUT/discovery/discovery.json" --output "$OUT/nominal"

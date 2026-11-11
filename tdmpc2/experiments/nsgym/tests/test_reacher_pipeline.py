@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import subprocess
 import numpy as np
 import torch
 
@@ -66,6 +67,17 @@ class PipelineTests(unittest.TestCase):
         r.write(self.root/'completion.json',{'status':'PASS'});r.write(self.root/'manifest.json',dict(stage='inventory',config_fingerprint=r.fingerprint(self.c)))
         r.gate(self.root,'inventory',self.c)
         with self.assertRaises(AssertionError):r.gate(self.root,'probe',self.c)
+    def test_blocked_discovery_does_not_consume_nominal_output(self):
+        discovery=self.root/'discovery';discovery.mkdir()
+        result=r.discover(self.root,self.c,discovery)
+        self.assertEqual(result['status'],'BLOCKED')
+        self.assertIn('No valid nominal Reacher checkpoint',result['reason'])
+        nominal=self.root/'nominal'
+        process=subprocess.run([sys.executable,str(SCRIPTS/'run_reacher_pipeline.py'),'nominal',
+            '--discovery',str(discovery/'discovery.json'),'--output',str(nominal)],capture_output=True,text=True)
+        self.assertNotEqual(process.returncode,0)
+        self.assertIn('Discovery is BLOCKED',process.stderr)
+        self.assertFalse(nominal.exists())
     def test_frozen_alias_metadata_and_plots(self):
         c=dict(self.c,evaluation_seeds=self.c['evaluation_seeds'][:2],calibration_seeds=self.c['calibration_seeds'][:1])
         frozen=self.root/'frozen';frozen.mkdir();probe=self.root/'probe';probe.mkdir()

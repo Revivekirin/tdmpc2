@@ -11,7 +11,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('stage',choices=['discover','nominal','inventory','probe','frozen','smoke','adapt','predict','control','aggregate'])
     p.add_argument('--config',default=str(r.DEFAULT));p.add_argument('--output',required=True)
-    p.add_argument('--search-root',default=str(r.ROOT/'results/nsgym'));p.add_argument('--run',help='Explicit discovered training run when multiple exist')
+    p.add_argument('--search-root',default=str(r.ROOT),help='Search the full project root by default');p.add_argument('--run',help='Explicit discovered training run when multiple exist')
     p.add_argument('--discovery');p.add_argument('--selection',help='R0 selected_reacher_checkpoint.json; immutable checkpoint identity')
     p.add_argument('--inventory');p.add_argument('--probe');p.add_argument('--frozen');p.add_argument('--smoke')
     p.add_argument('--snapshot');p.add_argument('--runs',help='Adaptation matrix root for prediction/control evaluation')
@@ -34,6 +34,10 @@ def main():
     if a.stage=='aggregate' and not a.inputs:p.error('--inputs required')
     manifest=dict(stage=a.stage,**r.provenance(c),arguments=vars(a))
     if a.dry_run:print(json.dumps(manifest,indent=2));return
+    if a.stage=='nominal':
+        discovery=r.read(a.discovery)
+        if discovery.get('status')!='READY':
+            p.error(f"Discovery is {discovery.get('status')}: {discovery.get('reason')}. Run discover again over the full project root, then use its READY JSON. No nominal output was created.")
     s=r.selected(a.selection,c) if a.selection else None
     if s:manifest['checkpoint_sha256']=s['model_sha256']
     if a.stage=='probe':r.gate(a.inventory,'inventory',c)
