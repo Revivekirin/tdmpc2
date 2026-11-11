@@ -5,7 +5,6 @@ import csv
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import time
@@ -35,11 +34,6 @@ def record_key(i):return (i['parameter'],float(i['severity']),int(i['adaptation_
 def label(i):return f"{i['parameter']}-k{float(i['severity']):g}-decision-seed{i['adaptation_seed']}"
 def conditions(c):return [(x['parameter'],float(x['severity'])) for x in c['conditions']]
 class ReferenceCheckNeeded(AssertionError):pass
-def selected(c,subset):
-    grid=conditions(c)
-    if subset=='smoke':grid=[x for x in grid if x[1]==2.]
-    return grid
-
 def run_manifest(root,method,expected,c):
     stage=Path(root)/f'fixed-{method}'
     assert read(stage/'completion.json')['status']=='PASS',f'{stage} not complete'
@@ -298,42 +292,25 @@ def evaluate_control(agent,adapter,condition,base,c,mode):
     return rows
 
 def batch(a,c,checks,baseline_data):
-    import numpy as np
-    import torch
     assert a.mode in ('prediction','shifted','nominal')
-    if a.subset=='full':
-        for p in (a.smoke_prediction,a.smoke_shifted):
-            assert p and read(Path(p)/'completion.json')['status']=='PASS',f'Smoke missing/incomplete: {p}'
-        assert read(Path(a.smoke_prediction)/'manifest.json')['mode']=='prediction'
-        assert read(Path(a.smoke_shifted)/'manifest.json')['mode']=='shifted'
-        if a.mode=='nominal':
-            # Nominal retention stays a separately scheduled optional stage.
-            pass
-        reuse_root=Path(a.smoke_prediction if a.mode=='prediction' else a.smoke_shifted) if a.mode!='nominal' else None
-        if reuse_root is not None:
-            smoke_manifest=read(reuse_root/'manifest.json')
-            assert smoke_manifest['audit_sha256']==digest(a.audit)
-            assert smoke_manifest['checkpoint_sha256']==t.SHA
-            assert smoke_manifest['subset']=='smoke' and smoke_manifest['mode']==a.mode
-    else:reuse_root=None
-    targets={(p,k,s) for p,k in selected(c,a.subset) for s in c['adaptation_seeds']}
+    targets={(p,k,s) for p,k in conditions(c) for s in c['adaptation_seeds']}
     expected={record_key(x):x for x in checks}
     assert targets<=set(expected)
     out=Path(a.output)
     if a.resume:
         assert out.is_dir()
         m=read(out/'manifest.json')
-        assert m['mode']==a.mode and m['subset']==a.subset and m['audit_sha256']==digest(a.audit)
+        assert m['mode']==a.mode and m['evaluation_scope']=='full_grid_final_snapshot_v2' and m['audit_sha256']==digest(a.audit)
         previous=out/'completion.json'
         if previous.exists():
             assert read(previous)['status']=='PARTIAL','Completed batch cannot be resumed'
             previous.rename(out/f'completion-attempt-{uuid4().hex[:8]}.json')
     else:
         out.mkdir(parents=True,exist_ok=False)
-        save(out/'manifest.json',dict(mode=a.mode,subset=a.subset,audit=str(Path(a.audit).resolve()),audit_sha256=digest(a.audit),
+        save(out/'manifest.json',dict(mode=a.mode,evaluation_scope='full_grid_final_snapshot_v2',audit=str(Path(a.audit).resolve()),audit_sha256=digest(a.audit),
             checkpoint_sha256=t.SHA,configuration=c,evaluation_seeds=c['evaluation_seeds'],identities=[dict(parameter=p,severity=k,adaptation_seed=s) for p,k,s in sorted(targets)],
             source_revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),source_sha256=digest(__file__)))
-    passed=[];failed=[];skipped=[];reused=[]
+    passed=[];failed=[];skipped=[]
     for key in sorted(targets):
         expected_row=expected[key];directory=Path(a.runs)/'fixed-decision'/label(expected_row)
         target=out/label(expected_row)
@@ -343,18 +320,6 @@ def batch(a,c,checks,baseline_data):
                 skipped.append(target.name);continue
             archived=out.parent/f'{out.name}-interrupted-{target.name}-{uuid4().hex[:8]}'
             target.rename(archived)
-        if reuse_root is not None and (key[0],key[1]) in selected(c,'smoke'):
-            source=reuse_root/target.name
-            assert read(source/'completion.json')['status']=='PASS'
-            source_manifest=read(source/'manifest.json')
-            assert record_key(source_manifest['identity'])==key
-            assert source_manifest['snapshot_sha256']==expected_row['snapshot_sha256']
-            target.mkdir()
-            for filename in ('manifest.json','completion.json',f'{a.mode}.csv'):
-                shutil.copy2(source/filename,target/filename)
-            (target/'reused_from.txt').write_text(str(source.resolve())+'\n')
-            reused.append(target.name);print('REUSE SMOKE',target.name,flush=True)
-            continue
         target.mkdir()
         started=time.perf_counter()
         try:
@@ -377,8 +342,8 @@ def batch(a,c,checks,baseline_data):
         except Exception as exc:
             save(target/'failure.json',dict(error=type(exc).__name__,message=str(exc),elapsed_seconds=time.perf_counter()-started))
             failed.append(dict(identity=target.name,error=str(exc)));print('FAIL',target.name,exc,flush=True)
-    status='PASS' if not failed and len(passed)+len(skipped)+len(reused)==len(targets) else 'PARTIAL'
-    save(out/'completion.json',dict(status=status,mode=a.mode,subset=a.subset,completed=passed,reused_smoke=reused,skipped=skipped,failed=failed,expected=len(targets)))
+    status='PASS' if not failed and len(passed)+len(skipped)==len(targets) else 'PARTIAL'
+    save(out/'completion.json',dict(status=status,mode=a.mode,completed=passed,skipped=skipped,failed=failed,expected=len(targets)))
     return status
 
 def collect_stage(root,mode):
@@ -512,9 +477,6 @@ def main():
     parser.add_argument('--output',required=True,help='New directory; --resume only for incomplete evaluate batch')
     parser.add_argument('--audit',help='PASS audit.json produced by audit command')
     parser.add_argument('--mode',choices=['prediction','shifted','nominal'],help='Only for evaluate; nominal retention is separate')
-    parser.add_argument('--subset',choices=['smoke','full'],default='smoke',help='Smoke = predefined damping 2× and mass 2×')
-    parser.add_argument('--smoke-prediction',help='PASS smoke prediction batch; required for full evaluation')
-    parser.add_argument('--smoke-shifted',help='PASS smoke shifted batch; required for full evaluation')
     parser.add_argument('--prediction',help='Completed final prediction batch for aggregate')
     parser.add_argument('--shifted',help='Completed final shifted control batch for aggregate')
     parser.add_argument('--nominal',help='Optional completed separate nominal retention batch')
@@ -527,16 +489,13 @@ def main():
     a.checkpoint=str(Path(a.checkpoint).resolve());a.runs=str(Path(a.runs).resolve());a.reference=str(Path(a.reference).resolve())
     c=t.configuration(argparse.Namespace(config=a.config,command='run'))
     if a.dry_run:
-        total=len(selected(c,a.subset))*len(c['adaptation_seeds'])*len(c['evaluation_seeds'])*1000
-        reused=(len(selected(c,'smoke'))*len(c['adaptation_seeds'])*len(c['evaluation_seeds'])*1000
-                if a.subset=='full' and a.mode in ('prediction','shifted') else 0)
-        print(json.dumps(dict(command=a.command,mode=a.mode,subset=a.subset,checkpoint=a.checkpoint,checkpoint_sha256=t.SHA,
+        total=len(conditions(c))*len(c['adaptation_seeds'])*len(c['evaluation_seeds'])*1000
+        print(json.dumps(dict(command=a.command,mode=a.mode,checkpoint=a.checkpoint,checkpoint_sha256=t.SHA,
             runs=a.runs,reference=a.reference,output=a.output,final_snapshot=3000,
-            condition_count=len(conditions(c)) if a.command in ('audit','aggregate') else len(selected(c,a.subset)),
+            condition_count=len(conditions(c)),
             adaptation_streams=len(c['adaptation_seeds']),evaluation_seeds=c['evaluation_seeds'],
-            shifted_rollout_transitions_new=(total-reused if a.command=='evaluate' and a.mode=='shifted' else
-                                             total if a.command=='evaluate' and a.mode=='nominal' else 0),
-            fixed_bank_prediction_samples_new=total-reused if a.command=='evaluate' and a.mode=='prediction' else 0),indent=2));return
+            shifted_rollout_transitions_new=total if a.command=='evaluate' and a.mode in ('shifted','nominal') else 0,
+            fixed_bank_prediction_samples_new=total if a.command=='evaluate' and a.mode=='prediction' else 0),indent=2));return
     assert digest(Path(a.checkpoint)/'model.pt')==t.SHA,'Checkpoint hash mismatch'
     if a.command=='audit':
         fallback=False

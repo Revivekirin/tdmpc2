@@ -1,6 +1,6 @@
 # Server execution commands
 
-For the current **final 3,000-transition Decision versus existing Frozen** benchmark, use `TTT_BENCHMARK_STANDARD.md` and its single `ttt_benchmark.py` entry point. The all-snapshot evaluation loop below is the original broader protocol and is not required for that comparison.
+For the current **final 3,000-transition Decision versus existing Frozen** comparison, use `RUN_TTT_FINAL_SNAPSHOT.md` and `evaluate_ttt_final.py` directly. The all-snapshot loop below is the original broader protocol and is not required for that comparison.
 
 Run manually in tdmpc2-nsgym from the inner project root `/home/jhkim/repos/tdmpc2`. The enclosing Git checkout root is `/home/jhkim/repos`; both paths exist on server4. Existing source results and checkpoints are read-only. Every output below must be new; choose a new suffix for reruns. The full evaluation budget is large (21.6million held-out transitions per schedule); commands do not run until you execute them.
 

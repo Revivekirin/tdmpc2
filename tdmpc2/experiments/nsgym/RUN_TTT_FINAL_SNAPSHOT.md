@@ -1,92 +1,65 @@
-# Server commands: final 3,000-transition Decision TTT
+# Final-snapshot Dynamics-only TTT evaluation
 
-For one stage-gated entry point and the benchmark contract for future tasks, use `TTT_BENCHMARK_STANDARD.md`. The commands below are the underlying HalfCheetah evaluator calls.
-
-Run in `/home/jhkim/repos/tdmpc2` (the inner TD-MPC2 project). The enclosing Git root on this server is `/home/jhkim/repos`. The new script must first be synced to `experiments/nsgym/scripts/evaluate_ttt_final.py` in the **inner project**. Use a fresh output suffix for reruns. These commands never start adaptation or Joint RL.
+This is the single HalfCheetah evaluation entry point: `scripts/evaluate_ttt_final.py`. It reads the existing 750k, fixed-Frozen and fixed-Decision runs. It does not start adaptation, run a smoke stage, or evaluate intermediate snapshots. Run from the inner project root on server4:
 
 ```bash
 conda activate tdmpc2-nsgym
 cd /home/jhkim/repos/tdmpc2
-FINAL_RUNNER=experiments/nsgym/scripts/evaluate_ttt_final.py
+git pull --ff-only origin main
+
+EVAL=experiments/nsgym/scripts/evaluate_ttt_final.py
 CHECKPOINT=/home/jhkim/repos/tdmpc2/results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000
 REFERENCE=/home/jhkim/repos/tdmpc2/results/nsgym/physical-severity-750k-v1
 RUNS=/home/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1/runs
-FINAL=/home/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1/final-snapshot-v1
-test -f "$FINAL_RUNNER" && test -f "$CHECKPOINT/model.pt"
-python "$FINAL_RUNNER" --help
+OUT=/home/jhkim/repos/tdmpc2/results/nsgym/dynamics-only-750k-v1/final-snapshot-v2
+
+test -f "$EVAL" && test -f "$CHECKPOINT/model.pt" && \
+test -f "$REFERENCE/frozen/episodes.csv" && \
+test -f "$REFERENCE/heldout-latent/latent_errors.csv" && \
+test -f "$RUNS/fixed-frozen/completion.json" && \
+test -f "$RUNS/fixed-decision/completion.json"
 sha256sum "$CHECKPOINT/model.pt"
+python -m unittest experiments/nsgym/tests/test_dynamics_only_ttt.py experiments/nsgym/tests/test_ttt_final.py -q
 ```
 
-Expected checkpoint SHA256 is `f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b`.
-
-1. **Read-only run/baseline audit.** No physics is run when manifests establish compatibility. A single 20-seed Frozen damping 2× reference check runs only if old/new source hashes differ.
+Expected checkpoint SHA256: `f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b`. `OUT` must be new. Version `v2` avoids mixing outputs from the earlier smoke-dependent CLI. If a stage is already `PASS`, do not rerun it. Only a `PARTIAL` or interrupted `evaluate` stage may use `--resume` with its original output path.
 
 ```bash
-python "$FINAL_RUNNER" audit \
+# 1. Audit all 36 Frozen and 36 Decision streams and existing Frozen reference.
+python "$EVAL" audit \
   --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
-  --output "$FINAL/audit"
-cat "$FINAL/audit/completion.json"
+  --output "$OUT/audit"
+cat "$OUT/audit/completion.json"
+
+AUDIT="$OUT/audit/audit.json"
+
+# 2. Full predefined grid: 12 conditions × 3 streams × 20 seeds × 1,000 saved transitions.
+python "$EVAL" evaluate \
+  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
+  --audit "$AUDIT" --mode prediction --output "$OUT/prediction"
+cat "$OUT/prediction/completion.json"
+
+# 3. Full shifted control: 720,000 new environment transitions.
+mkdir -p "$OUT"
+nohup python -u "$EVAL" evaluate \
+  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
+  --audit "$AUDIT" --mode shifted --output "$OUT/shifted" \
+  > "$OUT/shifted.log" 2>&1 < /dev/null &
+echo $! > "$OUT/shifted.pid"
+tail -n 50 -f "$OUT/shifted.log"
 ```
 
-2. **Predefined 2× damping and 2× mass smoke.** Prediction only reads old hashed NPZ files; shifted control evaluates 6 final snapshots ×20 seeds ×1,000 steps =120,000 new environment transitions. Both stages include all three adaptation streams.
+After the shifted job finishes:
 
 ```bash
-AUDIT="$FINAL/audit/audit.json"
-python "$FINAL_RUNNER" evaluate \
+cat "$OUT/shifted/completion.json"
+python "$EVAL" aggregate \
   --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
-  --audit "$AUDIT" --mode prediction --subset smoke \
-  --output "$FINAL/smoke-prediction"
-python "$FINAL_RUNNER" evaluate \
-  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
-  --audit "$AUDIT" --mode shifted --subset smoke \
-  --output "$FINAL/smoke-shifted"
-cat "$FINAL/smoke-prediction/completion.json"
-cat "$FINAL/smoke-shifted/completion.json"
+  --audit "$AUDIT" --prediction "$OUT/prediction" \
+  --shifted "$OUT/shifted" --output "$OUT/summary"
+cat "$OUT/summary/completion.json"
 ```
 
-A negative smoke performance result is still a valid PASS; it does not prevent full-grid evaluation. A missing or invalid result is PARTIAL and must be diagnosed.
+The summary contains the per-seed prediction/control CSVs, 12-condition coverage, paired Frozen comparisons and figures. It averages held-out seeds within each adapted stream and summarizes across the three streams. A lower latent MSE alone is not evidence of improved control. Optional nominal retention is a separate `evaluate --mode nominal --output "$OUT/nominal"` run, followed by `aggregate` into a new summary directory with `--nominal "$OUT/nominal"` added. It costs another 720,000 environment transitions and is not required for the primary comparison.
 
-3. **All 12 predefined conditions, final snapshot only.** Prediction covers 720,000 saved transitions and shifted control covers 720,000 environment transitions in total. The six smoke identities are reused, so this stage adds 600,000 prediction samples and 600,000 new shifted transitions. Each command uses a fresh output directory. Run separately; the second is the long GPU/MuJoCo job.
-
-```bash
-python "$FINAL_RUNNER" evaluate \
-  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
-  --audit "$AUDIT" --mode prediction --subset full \
-  --smoke-prediction "$FINAL/smoke-prediction" \
-  --smoke-shifted "$FINAL/smoke-shifted" \
-  --output "$FINAL/full-prediction"
-
-python "$FINAL_RUNNER" evaluate \
-  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
-  --audit "$AUDIT" --mode shifted --subset full \
-  --smoke-prediction "$FINAL/smoke-prediction" \
-  --smoke-shifted "$FINAL/smoke-shifted" \
-  --output "$FINAL/full-shifted"
-```
-
-For a long shifted batch, use the same command after `nohup python -u`, redirect output to a fresh log, store `$!` as a PID and monitor with `tail -f`. If a batch ends `PARTIAL`, rerun its **same** command with `--resume` and the same `--output`: PASS identities are skipped, incomplete condition directories are preserved under a unique interrupted name, and failed conditions restart from their unchanged final snapshot. A completed PASS batch rejects `--resume`.
-
-4. **Analyze primary prediction/control comparison.** This reads only completed per-seed CSVs and includes MISSING/PARTIAL conditions explicitly.
-
-```bash
-python "$FINAL_RUNNER" aggregate \
-  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
-  --audit "$AUDIT" --prediction "$FINAL/full-prediction" \
-  --shifted "$FINAL/full-shifted" \
-  --output "$FINAL/summary"
-```
-
-The summary contains `TTT_FINAL_SNAPSHOT_COMPARISON.md`, `ttt_final_prediction.csv`, `ttt_final_control.csv`, `ttt_final_vs_frozen.png`, `ttt_prediction_vs_control.png`, replica/condition summaries and failure records.
-
-5. **Optional, separately budgeted nominal retention.** Run after the primary comparison if degradation under original dynamics matters for the decision. This is another 720,000 environment transitions and does not change the selected snapshot.
-
-```bash
-python "$FINAL_RUNNER" evaluate \
-  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
-  --audit "$AUDIT" --mode nominal --subset full \
-  --smoke-prediction "$FINAL/smoke-prediction" \
-  --smoke-shifted "$FINAL/smoke-shifted" \
-  --output "$FINAL/full-nominal"
-```
-
-To include retention, run `aggregate` into a **new** summary directory with `--nominal "$FINAL/full-nominal"` added. Every stage supports `--dry-run`; it prints the condition/seed budget without loading CUDA or running physics.
+For a new task or benchmark, retain this stage order and output contract (`audit.json`, per-identity and stage `completion.json`, per-seed prediction/control CSVs, complete condition grid). Its task-specific evaluator must validate the new checkpoint, task dimensions, simulator, condition grid, seed split, horizon, baseline compatibility and adaptation scope. HalfCheetah constants in this evaluator must not be reused unchanged for Reacher.

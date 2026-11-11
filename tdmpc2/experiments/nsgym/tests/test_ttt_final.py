@@ -3,6 +3,7 @@ import csv
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -116,12 +117,19 @@ class FinalSnapshotTests(unittest.TestCase):
         self.assertAlmostEqual(rows[0]['paired_return_difference'],rows[0]['decision_return']-rows[0]['frozen_return'])
         self.assertEqual(adapter.gradient_steps,0)
 
-    def test_subset_and_statistics(self):
-        self.assertEqual(len(f.selected(self.c,'smoke')),2)
-        self.assertEqual(set(f.selected(self.c,'smoke')),{('bthigh_damping',2.),('torso_mass',2.)})
-        self.assertEqual(len(f.selected(self.c,'full')),12)
+    def test_full_grid_and_statistics(self):
+        self.assertEqual(len(f.conditions(self.c)),12)
         self.assertEqual(f.unit_stats([1.,2.,3.])['n_adaptation_seeds'],3)
         self.assertEqual(f.unit_stats([1.])['ci_low'],None)
+
+    def test_full_grid_dry_run_has_no_smoke_dependency(self):
+        cmd=[sys.executable,str(Path(f.__file__)),'evaluate','--checkpoint','/unused/checkpoint',
+             '--runs','/unused/runs','--reference','/unused/reference','--output','/unused/output',
+             '--audit','/unused/audit.json','--mode','shifted','--dry-run']
+        plan=json.loads(subprocess.check_output(cmd,text=True))
+        self.assertEqual(plan['condition_count'],12)
+        self.assertEqual(plan['shifted_rollout_transitions_new'],720000)
+        self.assertNotIn('subset',plan)
 
     def test_partial_aggregation_keeps_full_grid(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -136,7 +144,7 @@ class FinalSnapshotTests(unittest.TestCase):
             for mode,parent in roots.items():
                 parent.mkdir();f.save(parent/'manifest.json',{'mode':mode})
                 f.save(parent/'completion.json',{'status':'PARTIAL'})
-                for parameter,severity in f.selected(self.c,'smoke'):
+                for parameter,severity in (x for x in f.conditions(self.c) if x[1]==2.):
                     for seed in self.c['adaptation_seeds']:
                         identity=dict(parameter=parameter,severity=severity,adaptation_seed=seed,method='decision',schedule='fixed',synthetic=False)
                         child=parent/f.label(identity);child.mkdir()
