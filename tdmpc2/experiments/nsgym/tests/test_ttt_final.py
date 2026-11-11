@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
@@ -130,6 +131,28 @@ class FinalSnapshotTests(unittest.TestCase):
         self.assertEqual(plan['condition_count'],12)
         self.assertEqual(plan['shifted_rollout_transitions_new'],720000)
         self.assertNotIn('subset',plan)
+
+    def test_real_checkpoint_loader_gets_explicit_synthetic_false(self):
+        with patch.object(t,'load_agent',return_value=('agent','metadata')) as loader:
+            self.assertEqual(f.load_original_agent(SimpleNamespace(checkpoint='/tmp/750k')),
+                             ('agent','metadata'))
+        self.assertEqual(loader.call_args.args[0].checkpoint,'/tmp/750k')
+        self.assertIs(loader.call_args.args[0].synthetic,False)
+
+    def test_programming_error_stops_batch_after_first_condition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);audit=root/'audit.json';f.save(audit,{'status':'PASS'})
+            c=dict(self.c,conditions=[dict(parameter='bthigh_damping',severity=2.)],
+                   adaptation_seeds=[42000001,42000002])
+            checks=[dict(parameter='bthigh_damping',severity=2.,adaptation_seed=seed)
+                    for seed in c['adaptation_seeds']]
+            args=SimpleNamespace(mode='prediction',output=str(root/'prediction'),resume=False,
+                                 audit=str(audit),runs=str(root/'runs'),reference=str(REFERENCE))
+            with patch.object(f,'load_adapted',side_effect=AttributeError('missing contract')) as loader:
+                with self.assertRaisesRegex(AttributeError,'missing contract'):
+                    f.batch(args,c,checks,self.base)
+            self.assertEqual(loader.call_count,1)
+            self.assertEqual(len(list((root/'prediction').glob('*/failure.json'))),1)
 
     def test_partial_aggregation_keeps_full_grid(self):
         with tempfile.TemporaryDirectory() as tmp:

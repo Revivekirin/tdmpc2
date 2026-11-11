@@ -24,6 +24,21 @@ python -m unittest experiments/nsgym/tests/test_dynamics_only_ttt.py experiments
 
 Expected checkpoint SHA256: `f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b`. `OUT` must be new. Version `v2` avoids mixing outputs from the earlier smoke-dependent CLI. If a stage is already `PASS`, do not rerun it. Only a `PARTIAL` or interrupted `evaluate` stage may use `--resume` with its original output path.
 
+If the audit is already `PASS` but an evaluation stage is `PARTIAL`, keep the audit and resume the same stage after updating the code. First verify that no earlier evaluator process is still running:
+
+```bash
+AUDIT="$OUT/audit/audit.json"
+python "$EVAL" evaluate \
+  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
+  --audit "$AUDIT" --mode prediction --output "$OUT/prediction" --resume
+nohup python -u "$EVAL" evaluate \
+  --checkpoint "$CHECKPOINT" --runs "$RUNS" --reference "$REFERENCE" \
+  --audit "$AUDIT" --mode shifted --output "$OUT/shifted" --resume \
+  > "$OUT/shifted-resume.log" 2>&1 < /dev/null &
+echo $! > "$OUT/shifted-resume.pid"
+tail -n 50 -f "$OUT/shifted-resume.log"
+```
+
 ```bash
 # 1. Audit all 36 Frozen and 36 Decision streams and existing Frozen reference.
 python "$EVAL" audit \

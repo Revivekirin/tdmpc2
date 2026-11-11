@@ -181,7 +181,7 @@ def reference_check(a,c,base):
     """Only if old/new simulator or core source hashes cannot establish reuse."""
     import numpy as np
     t.dependencies()
-    agent,_=t.load_agent(a)
+    agent,_=load_original_agent(a)
     adapter=t.make_adapter(agent,c,'frozen',c['adaptation_seeds'][0])
     cond=dict(parameter='bthigh_damping',severity=2.)
     rows=[]
@@ -211,6 +211,11 @@ def validate_snapshot(payload,manifest,completion,c):
     state=payload['adapter'];assert state['counters'][1]==3000 and state['counters'][3]==118
     return i
 
+def load_original_agent(a):
+    # This evaluator only loads the real 750k checkpoint. The adaptation
+    # runner's loader also supports synthetic fixtures, so set that explicitly.
+    return t.load_agent(argparse.Namespace(checkpoint=a.checkpoint,synthetic=False))
+
 def load_adapted(a,c,path,expected):
     import torch
     t.dependencies()
@@ -218,7 +223,7 @@ def load_adapted(a,c,path,expected):
     manifest=read(path/'manifest.json');completion=read(path/'completion.json')
     i=validate_snapshot(payload,manifest,completion,c)
     assert digest(path/'snapshot-0003000.pt')==expected['snapshot_sha256']
-    agent,meta=t.load_agent(a)
+    agent,meta=load_original_agent(a)
     adapter=t.make_adapter(agent,c,'decision',i['adaptation_seed'])
     assert t.tree_hash(adapter.fixed_state())==payload['fixed_hash']
     adapter.load_state_dict(payload['adapter'])
@@ -342,6 +347,7 @@ def batch(a,c,checks,baseline_data):
         except Exception as exc:
             save(target/'failure.json',dict(error=type(exc).__name__,message=str(exc),elapsed_seconds=time.perf_counter()-started))
             failed.append(dict(identity=target.name,error=str(exc)));print('FAIL',target.name,exc,flush=True)
+            if isinstance(exc,AttributeError):raise
     status='PASS' if not failed and len(passed)+len(skipped)==len(targets) else 'PARTIAL'
     save(out/'completion.json',dict(status=status,mode=a.mode,completed=passed,skipped=skipped,failed=failed,expected=len(targets)))
     return status
