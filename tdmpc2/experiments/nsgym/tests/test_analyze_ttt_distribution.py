@@ -12,6 +12,16 @@ import analyze_ttt_distribution as analysis
 
 
 class DistributionAnalysis(unittest.TestCase):
+    def test_spearman_uses_average_ranks_for_ties(self):
+        self.assertEqual(analysis.average_ranks([3,1,1,2,3,3]).tolist(),
+                         [5.,1.5,1.5,3.,5.,5.])
+
+    def test_shifted_summary_excludes_both_nominal_labels_without_mutation(self):
+        pairs=[dict(parameter=p,severity=k) for p in ('bthigh_damping','torso_mass')
+               for k in (.5,.75,1.,1.25,1.5,2.) for seed in range(3)]
+        self.assertEqual(len(analysis.shifted_pairs(pairs)),30)
+        self.assertEqual(len(pairs),36)
+
     def test_paired_bank_and_snapshot_integrity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

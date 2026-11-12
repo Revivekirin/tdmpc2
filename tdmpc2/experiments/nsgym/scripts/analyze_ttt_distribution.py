@@ -439,22 +439,34 @@ def draw(out,conditions,prediction,pred_dist,pred_seed,control,control_dist,pair
     save(fig,'mechanism_summary.png')
 
 
+def average_ranks(values):
+    """Spearman ranks: equal values receive the same average rank."""
+    import numpy as np
+    _, inverse, counts = np.unique(values, return_inverse=True, return_counts=True)
+    return (np.cumsum(counts) - (counts-1)/2)[inverse]
+
+
+def association(group):
+    import numpy as np
+    if len(group)<6:
+        return f'n={len(group)}; insufficient streams'
+    x=np.asarray([r['prediction_improvement'] for r in group],dtype=float)
+    y=np.asarray([r['return_improvement'] for r in group],dtype=float)
+    if np.std(x)==0 or np.std(y)==0:
+        return f'n={len(group)}; undefined (constant variable)'
+    return f'n={len(group)}; Pearson {np.corrcoef(x,y)[0,1]:.3f}; Spearman {np.corrcoef(average_ranks(x),average_ranks(y))[0,1]:.3f}'
+
+
+def shifted_pairs(pairs):
+    # Retain both nominal labels in source tables, but exclude them from OOD summaries.
+    return [r for r in pairs if float(r['severity'])!=1.]
+
+
 def report(out,a,complete,prediction,control,pairs,opt,control_top):
     from collections import Counter
-    import numpy as np
     npred=sum(r['prediction_status']=='COMPLETE' for r in complete)
     ncontrol=sum(r['control_status']=='COMPLETE' for r in complete)
     status='COMPLETE' if len(control)==len(prediction)==36 and ncontrol==npred==36 and control_top=='PASS' else 'PREDICTION_ONLY'
-    def association(group):
-        if len(group)<6:
-            return f'n={len(group)}; insufficient independent streams'
-        x=np.asarray([r['prediction_improvement'] for r in group],dtype=float)
-        y=np.asarray([r['return_improvement'] for r in group],dtype=float)
-        if np.std(x)==0 or np.std(y)==0:
-            return f'n={len(group)}; undefined (constant variable)'
-        rank_x=np.argsort(np.argsort(x)).astype(float)
-        rank_y=np.argsort(np.argsort(y)).astype(float)
-        return f'n={len(group)}; Pearson {np.corrcoef(x,y)[0,1]:.3f}; Spearman {np.corrcoef(rank_x,rank_y)[0,1]:.3f}'
     prediction_summary=[]
     for family in ('bthigh_damping','torso_mass'):
         group=[r for r in prediction if r['parameter']==family]
@@ -462,10 +474,14 @@ def report(out,a,complete,prediction,control,pairs,opt,control_top):
             f'{sum(r["mse_improvement"]<0 for r in group)} worsened; mean stream MSE improvement '
             f'{st.mean(r["mse_improvement"] for r in group):.6g}.' if group else f'- {family}: no complete streams.')
     quadrant_counts=Counter(r['quadrant'] for r in pairs)
-    pair_summary=['Overall association: '+association(pairs)]
+    shifted=shifted_pairs(pairs)
+    pair_summary=[f'Shifted-only quadrants (k != 1): {dict(Counter(r["quadrant"] for r in shifted))}.',
+                  'Primary shifted-only association: '+association(shifted),
+                  'Both family k=1 labels are the same nominal physical condition and use the same adaptation seeds; they are not six independent nominal replicates. All labelled rows remain in the tables.',
+                  'Spearman uses average ranks for ties. Associations across severities are descriptive and may reflect severity effects; no p-values are inferred.']
     for family in ('bthigh_damping','torso_mass'):
-        group=[r for r in pairs if r['parameter']==family]
-        pair_summary.append(f'- {family}: {association(group)}; quadrants {dict(Counter(r["quadrant"] for r in group))}.')
+        group=[r for r in shifted if r['parameter']==family]
+        pair_summary.append(f'- {family}, shifted-only: {association(group)}; quadrants {dict(Counter(r["quadrant"] for r in group))}.')
     pair_summary.append('Within a single family × severity, n=3 streams; no per-severity correlation is computed.')
     heading=['# Frozen vs Dynamics-only TTT distribution analysis','',
         f'Status: **{status}**. Prediction {npred}/36 streams; control {ncontrol}/36 streams; control stage {control_top}.',
@@ -483,15 +499,15 @@ def report(out,a,complete,prediction,control,pairs,opt,control_top):
         *(f'- {family}: {st.mean(r["delta_return"] for r in group):.4g} mean paired return difference across {len(group)} streams; {sum(r["delta_return"]>0 for r in group)} improved, {sum(r["delta_return"]<0 for r in group)} worsened.'
           for family in ('bthigh_damping','torso_mass') if (group:=[r for r in control if r['parameter']==family])),
         'The TTT evaluator saved no TTT root/joint trajectories or per-step prediction errors. Actuator-force saturation is available only for the adapted rollout; it is not inferred from action saturation.','',
-        '## Prediction–control',f'Complete paired streams: {len(pairs)}. Quadrant counts: {dict(quadrant_counts)}. Quadrants and associations are descriptive, not causal.',
+        '## Prediction–control',f'Complete labelled paired streams: {len(pairs)}. Labelled quadrant counts (including both nominal labels): {dict(quadrant_counts)}. Quadrants and associations are descriptive, not causal.',
         *pair_summary,'',
         '## Optimization',f'Existing online adaptation logs analyzed for {len(opt)} streams. '
         f'Observed update counts: {sorted(set(r["gradient_update_steps"] for r in opt))}; '
         f'first eligible actual update at step 75, then every 25 transitions to 3,000. '
         'Training loss is not held-out generalization.','',
         '## Missing evidence',
-        '- Nominal retention: NOT_EVALUATED unless a separate nominal batch exists.',
-        '- Q/value mismatch, encoder drift, replay-distribution shift and planning candidate ranking: HYPOTHESES requiring separate evidence.',
+        '- k=1 evaluates continual updates in nominal physics. Retention after adaptation to k != 1 remains NOT_EVALUATED unless a separate nominal batch exists.',
+        '- Q/value mismatch, replay-distribution shift and planning candidate ranking: HYPOTHESES requiring separate evidence. The encoder is frozen in Dynamics-only; encoder parameter drift is not an explanation for this intervention.',
         '- The single nominal training seed limits cross-training generalization.','']
     (out/'DYNAMICS_TTT_DISTRIBUTION_REPORT.md').write_text('\n'.join(heading))
     (out/'PREDICTION_DISTRIBUTION.md').write_text('\n'.join(['# Held-out prediction distribution','',
