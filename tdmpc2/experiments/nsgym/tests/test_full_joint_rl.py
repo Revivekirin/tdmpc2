@@ -1,7 +1,9 @@
 """CPU bookkeeping tests; these do not substitute for the real CUDA smoke."""
 import os
+import json
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -17,6 +19,37 @@ class Contracts(unittest.TestCase):
         self.assertFalse(set(c['adaptation_seeds']) & set(c['evaluation_seeds']))
         self.assertEqual(c['transitions']-c['first_update']+1,c['expected_updates'])
         self.assertFalse(c['automatic_heldout_evaluation'])
+
+    def test_reacher_uses_selected_grid_and_episode_cadence(self):
+        c=joint.protocol('reacher')
+        self.assertEqual(c['task'],'reacher')
+        self.assertEqual(c['horizon'],50)
+        self.assertEqual(c['transitions'],10000)
+        self.assertEqual(len(c['conditions'])*len(c['adaptation_seeds']),72)
+        self.assertFalse(set(c['adaptation_seeds']) & set(c['evaluation_seeds']))
+        self.assertEqual(joint.expected_updates(100,c),2)
+        self.assertEqual(joint.expected_updates(10000,c),398)
+        self.assertFalse(joint.should_update(50,c,1))
+        self.assertTrue(joint.should_update(75,c,1))
+        self.assertFalse(joint.should_update(75,c,0))
+
+    def test_halfcheetah_update_cadence_is_unchanged(self):
+        c=joint.protocol()
+        self.assertEqual(joint.expected_updates(1004,c),5)
+        self.assertEqual(joint.expected_updates(3000,c),2001)
+
+    def test_reacher_rejects_checkpoint_outside_nominal_selection(self):
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp);checkpoint=root/'selected';checkpoint.mkdir()
+            (checkpoint/'model.pt').write_bytes(b'model')
+            chosen=dict(checkpoint=str(checkpoint),model_sha256=joint.base.digest(checkpoint/'model.pt'),
+                        pipeline_config_fingerprint=joint.fingerprint(joint.reacher_config()))
+            selection=root/'selection.json';selection.write_text(json.dumps(chosen))
+            args=SimpleNamespace(selection=selection,checkpoint=checkpoint)
+            self.assertEqual(joint.checkpoint_identity(args,joint.protocol('reacher')),chosen['model_sha256'])
+            args.checkpoint=root/'other';args.checkpoint.mkdir()
+            with self.assertRaisesRegex(ValueError,'differs'):
+                joint.checkpoint_identity(args,joint.protocol('reacher'))
 
     def test_occupied_gpu_is_rejected_even_with_free_memory(self):
         with patch.object(joint.subprocess,'check_output',side_effect=[

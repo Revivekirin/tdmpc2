@@ -1,4 +1,43 @@
-# Independent HalfCheetah Full Joint RL adaptation
+# Independent Full Joint RL adaptation: HalfCheetah and Reacher
+
+The same `scripts/run_full_joint_rl.py` supports `--task halfcheetah` (default, preserving the original protocol) and `--task reacher`. It never launches held-out evaluation. An already running process keeps its loaded code, but it hashes the runner source for later stream manifests. While HalfCheetah is active, use a separate Git worktree for the updated runner so its on-disk source remains stable. A new smoke is required before any new full run because the runner source hash changed.
+
+## Reacher selected-checkpoint protocol
+
+Reacher uses only the nominal-validation selection JSON, requiring its checkpoint path, model SHA256 and configuration fingerprint to match. It covers the existing 24 physical conditions (D0/D1/M0/M1 × six severities), three independent adaptation seeds, 50-step episodes and 10,000 transitions per stream. It saves complete episodes to the original TD-MPC2 replay format. The first Joint RL update is at transition 75, then one update every 25 transitions, for 398 updates per stream; the 100-transition real smoke performs two updates. This matches the decision dynamics-only transition cadence, though each Joint RL update invokes both original Adam optimizers and target-Q/scale behavior. Joint RL collects with `eval_mode=False`, while the dynamics-only runner uses `eval_mode=True`; those online trajectories are therefore not action-matched. Both streams start independently from the selected nominal checkpoint. No Reacher Joint RL held-out evaluator is implemented yet, and no causal performance comparison should use the online returns alone.
+
+Run from the updated checkout's `tdmpc2/` directory, with fresh output directories and a GPU memory check. Keep `OUT` and the selected checkpoint at their existing absolute `/home/jhkim/repos/tdmpc2/results/...` paths. `--allow-shared-gpu` permits the existing Reacher and HalfCheetah jobs to remain on GPU 0, provided the memory guard passes. The GPU-throughput estimate from the dynamics-only smoke does not apply to Joint RL.
+
+```bash
+# Run in a separate updated worktree while the original checkout has active jobs.
+cd /home/jhkim/repos-reacher-joint/tdmpc2
+RUNNER=experiments/nsgym/scripts/run_full_joint_rl.py
+OUT=/home/jhkim/repos/tdmpc2/results/nsgym/reacher/preview-v1
+SELECTION="$OUT/nominal-home-01/selected_reacher_checkpoint.json"
+CHECKPOINT=/home/jhkim/repos/tdmpc2/results/nsgym/reacher-full-01/checkpoint-000670000
+JOINT="$OUT/full-joint-home-01"
+python "$RUNNER" plan --task reacher
+python "$RUNNER" gpu-check --task reacher --gpu 0 --allow-shared-gpu
+python -u "$RUNNER" smoke --task reacher --selection "$SELECTION" \
+  --checkpoint "$CHECKPOINT" --gpu 0 --allow-shared-gpu \
+  --output "$JOINT/smoke-d0-k1.5"
+cat "$JOINT/smoke-d0-k1.5/completion.json"
+```
+
+After a PASS smoke, launch the full 72-stream training in a new directory. The run rechecks the selection, smoke fingerprint and GPU free memory before starting and before each condition. It does not interfere with the HalfCheetah or Reacher dynamics-only output trees.
+
+```bash
+nohup python -u "$RUNNER" run --task reacher --selection "$SELECTION" \
+  --checkpoint "$CHECKPOINT" --gpu 0 --allow-shared-gpu \
+  --smoke-result "$JOINT/smoke-d0-k1.5" \
+  --output "$JOINT/runs-fixed" > "$JOINT/runs-fixed.log" 2>&1 < /dev/null &
+echo $! > "$JOINT/runs-fixed.pid"
+tail -n 50 -f "$JOINT/runs-fixed.log"
+```
+
+The Reacher full run is 72 × 10,000 = 720,000 interactions and 28,656 Joint RL updates. Smoke validates mechanics, not the full runtime or scientific outcome. Do not start a second copy into an existing output directory.
+
+## Original HalfCheetah protocol
 
 The existing `configs/adaptation/joint_rl.yaml` is a declaration, not a runnable learning adapter. `common/shift_protocol.py` rejects learning modes, and its legacy `joint_rl` label omits encoder/reward updates. This runner explicitly uses **Full Joint RL**: encoder, dynamics, reward, Q, policy prior, target Q Polyak updates and running Q scale. It calls the existing `TDMPC2.update()` and `common.buffer.Buffer` sequence sampler. No original training, evaluation, or Dynamics-only code is modified.
 
