@@ -51,6 +51,18 @@ class Contracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'differs'):
                 joint.checkpoint_identity(args,joint.protocol('reacher'))
 
+    def test_evaluation_checks_training_dependencies_without_rejecting_new_runner(self):
+        runner='experiments/nsgym/scripts/run_full_joint_rl.py'
+        config='experiments/nsgym/configs/reacher_pipeline_v1.json'
+        manifest={'source_hashes':{runner:'old-training-runner-hash',
+                                   config:joint.base.digest(joint.base.ROOT/config)}}
+        audit=joint.evaluation_sources(manifest)
+        self.assertTrue(audit['unchanged_training_dependencies'])
+        self.assertEqual(audit['training_runner_sha256'],'old-training-runner-hash')
+        manifest['source_hashes'][config]='changed-config-hash'
+        with self.assertRaisesRegex(ValueError,'Training dependency changed'):
+            joint.evaluation_sources(manifest)
+
     def test_occupied_gpu_is_rejected_even_with_free_memory(self):
         with patch.object(joint.subprocess,'check_output',side_effect=[
                 'GPU-test, 40000, 0\n','GPU-test, 3530262\n']):

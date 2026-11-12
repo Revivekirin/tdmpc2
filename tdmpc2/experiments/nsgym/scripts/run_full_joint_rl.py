@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent Full Joint RL adaptation; never starts held-out evaluation."""
+"""Independent Full Joint RL adaptation and explicit Reacher held-out evaluation."""
 import argparse
 from copy import deepcopy
 import gc
@@ -284,9 +284,181 @@ def run_stream(a, c, identity, target, budget):
         env.close()
 
 
+def evaluation_sources(training_manifest):
+    """Training sources must match; the runner itself gained this evaluation command."""
+    recorded=training_manifest['source_hashes']
+    runner=str(Path(__file__).relative_to(base.ROOT))
+    for relative, expected in recorded.items():
+        if relative != runner and base.digest(base.ROOT/relative)!=expected:
+            raise ValueError(f'Training dependency changed after adaptation: {relative}')
+    return dict(training_runner_sha256=recorded[runner],evaluation_runner_sha256=base.digest(__file__),
+                unchanged_training_dependencies=True)
+
+
+def evaluate_reacher_one(a,c,snapshot,target,selection,frozen_rows):
+    import numpy as np
+    import torch
+    from training_support import tree_hash, learned_state
+    import reacher_pipeline as reacher
+
+    child=base.read(snapshot.parent/'completion.json')
+    if child['status']!='PASS' or child['snapshot_sha256']!=base.digest(snapshot):
+        raise ValueError(f'Incomplete or changed Joint RL snapshot: {snapshot}')
+    payload=torch.load(snapshot,map_location='cpu',weights_only=False)
+    identity=payload['identity']
+    cond={k:identity[k] for k in ('family','parameter','severity')}
+    expected=dict(**cond,adaptation_seed=identity['adaptation_seed'],method='full_joint_rl',schedule='fixed')
+    expected_name=f'{cond["parameter"]}-k{cond["severity"]:g}-full-joint-seed{identity["adaptation_seed"]}'
+    if (identity!=expected or payload['protocol']!=c or
+            snapshot.parent.name!=expected_name or
+            payload['checkpoint_sha256']!=selection['model_sha256'] or
+            payload['configuration']!=selection['configuration'] or
+            payload['transitions']!=c['transitions'] or
+            payload['updates']!=c['expected_updates'] or
+            child['updates']!=c['expected_updates']):
+        raise ValueError('Joint RL snapshot identity, checkpoint or training budget mismatch')
+    agent,meta=reacher.load(a.checkpoint,reacher.config(REACHER_CONFIG))
+    if meta['model_sha256']!=selection['model_sha256']:
+        raise ValueError('Loaded Reacher checkpoint differs from nominal selection')
+    agent.model.load_state_dict(payload['model'])
+    agent.optim.load_state_dict(payload['optim'])
+    agent.pi_optim.load_state_dict(payload['pi_optim'])
+    agent.scale.load_state_dict(payload['scale'])
+    agent.model.eval()
+    before=tree_hash(learned_state(agent))
+    if before!=tree_hash({key:payload[key] for key in ('model','optim','pi_optim','scale')}):
+        raise ValueError('Joint RL snapshot did not reload exactly')
+    target.mkdir()
+    matching=[x for x in frozen_rows if x['family']==cond['family'] and float(x['severity'])==cond['severity']]
+    if sorted(int(x['seed']) for x in matching)!=sorted(c['evaluation_seeds']):
+        raise ValueError('Frozen held-out bank does not match evaluation seeds')
+    frozen_shift={int(x['seed']):x for x in matching}
+    frozen_nominal={int(x['seed']):x for x in frozen_rows if x['family']=='D0' and float(x['severity'])==1.}
+    if sorted(frozen_nominal)!=sorted(c['evaluation_seeds']):
+        raise ValueError('Nominal Frozen held-out bank is incomplete')
+    prediction=[];control=[];steps=[]
+    for row in matching:
+        path=Path(a.frozen)/row['data_file']
+        if base.digest(path)!=row['data_sha256']:
+            raise ValueError(f'Frozen held-out trajectory changed: {path}')
+        with np.load(path) as data:
+            errors=[reacher.error(agent,o,ac,n) for o,ac,n in zip(
+                data['observations'][:-1],data['actions'],data['observations'][1:])]
+        prediction.append(dict(**identity,budget=c['transitions'],seed=int(row['seed']),
+            latent_mse=float(np.mean(errors)),frozen_latent_mse=float(row['latent_mse']),
+            delta_heldout_latent_mse=float(np.mean(errors))-float(row['latent_mse']),
+            samples=len(errors),nominal_parameter=float(row['nominal_parameter']),
+            actual_parameter=float(row['actual_parameter']),source_sha256=row['data_sha256']))
+    for label,condition in [('shifted',cond),('nominal',cond|dict(severity=1.))]:
+        for seed in c['evaluation_seeds']:
+            record,step_rows=reacher.episode(agent,condition,seed)
+            baseline=frozen_shift[seed] if label=='shifted' else frozen_nominal[seed]
+            control.append(dict(**(record|dict(family=cond['family'],severity=cond['severity'])),
+                kind=label,method='full_joint_rl',adaptation_seed=identity['adaptation_seed'],
+                budget=c['transitions'],declared_final_budget=c['transitions'],
+                gradient_updates=payload['updates'],
+                paired_return_difference=float(record['episode_return'])-float(baseline['episode_return']),
+                frozen_episode_return=float(baseline['episode_return'])))
+            steps.extend([dict(x,kind=label,method='full_joint_rl',
+                               adaptation_seed=identity['adaptation_seed'],budget=c['transitions'])
+                          for x in step_rows])
+    if tree_hash(learned_state(agent))!=before:
+        raise ValueError('Joint RL model or optimizers changed during held-out evaluation')
+    if base.digest(snapshot)!=child['snapshot_sha256']:
+        raise ValueError('Joint RL snapshot changed during held-out evaluation')
+    if (base.digest(a.checkpoint/'model.pt')!=selection['model_sha256'] or
+            base.digest(a.checkpoint/'optimizers.pt')!=meta['optimizer_sha256']):
+        raise ValueError('Nominal checkpoint changed during held-out evaluation')
+    reacher.table(target/'predict.csv',prediction)
+    reacher.table(target/'control.csv',control)
+    reacher.table(target/'steps.csv',steps)
+    base.js(target/'completion.json',dict(status='PASS',snapshot=str(snapshot.resolve()),
+        snapshot_sha256=child['snapshot_sha256'],identity=identity,
+        evaluation_seeds=c['evaluation_seeds'],model_unchanged=True,
+        heldout_evaluation='PASS'))
+    return control,prediction
+
+
+def evaluate_reacher(a,c,checkpoint_sha):
+    import numpy as np
+    import reacher_pipeline as reacher
+    selection=base.read(a.selection)
+    if a.frozen is None or (a.runs is None)==(a.snapshot is None):
+        raise ValueError('Reacher evaluate requires --frozen and exactly one of --runs or --snapshot')
+    reacher.gate(a.frozen,'frozen',reacher.config(REACHER_CONFIG),selection)
+    frozen_rows=reacher.csvread(a.frozen/'reacher_frozen_severity.csv')
+    if a.runs:
+        training=base.read(a.runs/'manifest.json')
+        done=base.read(a.runs/'completion.json')
+        snapshots=sorted(a.runs.glob('*/snapshot-0010000.pt'))
+        expected_names={f'{x["parameter"]}-k{x["severity"]:g}-full-joint-seed{seed}'
+                        for x in c['conditions'] for seed in c['adaptation_seeds']}
+        if (done['status']!='PASS' or set(done['completed'])!=expected_names or
+                {x.parent.name for x in snapshots}!=expected_names):
+            raise ValueError('Full Reacher Joint RL training matrix is incomplete')
+    else:
+        snapshots=[a.snapshot]
+        training=base.read(a.snapshot.parent.parent/'manifest.json')
+    if (training['command']!='run' or training['protocol']!=c or
+            training['checkpoint_sha256']!=checkpoint_sha):
+        raise ValueError('Joint RL training manifest mismatch')
+    source_audit=evaluation_sources(training)
+    if a.output.exists():raise FileExistsError('Use a new evaluation output directory')
+    a.output.mkdir(parents=True)
+    base.js(a.output/'manifest.json',dict(command='evaluate',task='reacher',protocol=c,
+        checkpoint=str(a.checkpoint.resolve()),checkpoint_sha256=checkpoint_sha,
+        selection=str(a.selection.resolve()),frozen=str(a.frozen.resolve()),
+        training=str((a.runs or a.snapshot.parent.parent).resolve()),
+        snapshot_count=len(snapshots),evaluation_seeds=c['evaluation_seeds'],
+        source_audit=source_audit))
+    controls=[];predictions=[];completed=[]
+    try:
+        for snapshot in snapshots:
+            cr,pr=evaluate_reacher_one(a,c,snapshot,a.output/snapshot.parent.name,
+                                       selection,frozen_rows)
+            controls.extend(cr);predictions.extend(pr);completed.append(snapshot.parent.name)
+            print('PASS',snapshot.parent.name,flush=True)
+        if len({(x['family'],x['severity'],x['adaptation_seed'],x['seed'],x['kind']) for x in controls})!=len(controls):
+            raise ValueError('Duplicate held-out control evaluation')
+        if len({(x['family'],x['severity'],x['adaptation_seed'],x['seed']) for x in predictions})!=len(predictions):
+            raise ValueError('Duplicate held-out prediction evaluation')
+        reacher.table(a.output/'reacher_joint_control.csv',controls)
+        reacher.table(a.output/'reacher_joint_prediction.csv',predictions)
+        summaries=[]
+        for cond in c['conditions']:
+            for kind in ('shifted','nominal'):
+                for metric in ('episode_return','paired_return_difference','distance_final','latent_mse'):
+                    per=[float(np.mean([float(x[metric]) for x in controls if
+                          x['family']==cond['family'] and x['severity']==cond['severity'] and
+                          x['adaptation_seed']==seed and x['kind']==kind]))
+                         for seed in c['adaptation_seeds'] if any(x['family']==cond['family'] and
+                          x['severity']==cond['severity'] and x['adaptation_seed']==seed and
+                          x['kind']==kind for x in controls)]
+                    if per:summaries.append(dict(**cond,kind=kind,metric=metric,**reacher.stats(per)))
+        if summaries:reacher.table(a.output/'reacher_joint_seed_summary.csv',summaries)
+        (a.output/'REACHER_JOINT_RL_EVALUATION.md').write_text(
+            '# Reacher Full Joint RL held-out evaluation\n\n'
+            f'{len(snapshots)} final 10k snapshots evaluated on the fixed 20-seed held-out bank. '
+            'Each adapted model is evaluated under its fixed shift and nominal physics with updates disabled. '
+            'Prediction uses hashed Frozen trajectories only. Per-seed paired return differences use the '
+            'corresponding Frozen condition and one canonical nominal Frozen bank; repeated k=1 labels are '
+            'not independent nominal samples. Summary statistics first average evaluation seeds within '
+            'each adaptation replicate, then use the three adaptation seeds as the sampling unit. '
+            'Training used eval_mode=False actions; dynamics-only training used eval_mode=True actions, '
+            'so online trajectories and compute are not matched. This evaluation does not select a '
+            'checkpoint or severity based on shifted return.\n')
+        base.js(a.output/'completion.json',dict(status='PASS',completed=completed,
+            snapshots=len(snapshots),control_rows=len(controls),prediction_rows=len(predictions),
+            evaluation_seeds=c['evaluation_seeds'],heldout_evaluation='PASS'))
+    except Exception as exc:
+        base.js(a.output/'failure.json',dict(error=type(exc).__name__,message=str(exc),
+            completed=completed,time=time.time()))
+        raise
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=['plan','gpu-check','smoke','run','status'])
+    p.add_argument('command',choices=['plan','gpu-check','smoke','run','status','evaluate'])
     p.add_argument('--task',choices=['halfcheetah','reacher'],default='halfcheetah')
     p.add_argument('--checkpoint',type=Path)
     p.add_argument('--selection',type=Path,help='Required for Reacher: nominal selected_reacher_checkpoint.json')
@@ -295,9 +467,13 @@ def main():
     p.add_argument('--allow-shared-gpu',action='store_true',
                    help='Allow concurrent compute processes/high utilization; retain free-memory checks')
     p.add_argument('--smoke-result',type=Path,help='PASS smoke output from this runner revision')
+    p.add_argument('--runs',type=Path,help='PASS Full Joint RL run directory for held-out evaluation')
+    p.add_argument('--snapshot',type=Path,help='One completed final Joint RL snapshot for evaluation pilot')
+    p.add_argument('--frozen',type=Path,help='PASS Reacher Frozen stage with held-out trajectories')
     a=p.parse_args();c=protocol(a.task)
-    if a.task=='reacher' and a.command in ('smoke','run') and a.selection is None:
-        p.error('--selection is required for Reacher smoke/run')
+    if a.task=='reacher' and a.command in ('smoke','run','evaluate') and a.selection is None:
+        p.error('--selection is required for Reacher smoke/run/evaluate')
+    if a.command=='evaluate' and a.task!='reacher':p.error('Held-out evaluation currently supports Reacher only')
     if a.command=='plan':
         smoke_budget=100 if a.task=='reacher' else 1004
         smoke_condition=(next(x for x in c['conditions'] if x['family']=='D0' and x['severity']==1.5)
@@ -317,6 +493,12 @@ def main():
     if a.checkpoint is None:p.error('--checkpoint is required')
     if a.output.exists():raise FileExistsError('Use a new versioned output directory')
     checkpoint_sha=checkpoint_identity(a,c)
+    if a.command=='evaluate':
+        gpu=gpu_status(a.gpu,8192,a.allow_shared_gpu)
+        os.environ['CUDA_VISIBLE_DEVICES']=gpu['uuid']
+        base.dependencies()
+        evaluate_reacher(a,c,checkpoint_sha)
+        return
     minimum=8192
     if a.command=='run':
         if a.smoke_result is None:p.error('run requires --smoke-result from a real CUDA smoke')

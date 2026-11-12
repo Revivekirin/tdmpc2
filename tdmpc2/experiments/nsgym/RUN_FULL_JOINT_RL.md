@@ -1,10 +1,10 @@
 # Independent Full Joint RL adaptation: HalfCheetah and Reacher
 
-The same `scripts/run_full_joint_rl.py` supports `--task halfcheetah` (default, preserving the original protocol) and `--task reacher`. It never launches held-out evaluation. An already running process keeps its loaded code, but it hashes the runner source for later stream manifests. While HalfCheetah is active, use a separate Git worktree for the updated runner so its on-disk source remains stable. A new smoke is required before any new full run because the runner source hash changed.
+The same `scripts/run_full_joint_rl.py` supports `--task halfcheetah` (default, preserving the original training protocol) and `--task reacher`. Reacher held-out evaluation is an explicit `evaluate` command; training never launches it automatically. An already running process keeps its loaded code, but it hashes the runner source for later stream manifests. While HalfCheetah is active, use a separate Git worktree for the updated runner so its on-disk source remains stable. A new smoke is required before any new full run because the runner source hash changed.
 
 ## Reacher selected-checkpoint protocol
 
-Reacher uses only the nominal-validation selection JSON, requiring its checkpoint path, model SHA256 and configuration fingerprint to match. It covers the existing 24 physical conditions (D0/D1/M0/M1 × six severities), three independent adaptation seeds, 50-step episodes and 10,000 transitions per stream. It saves complete episodes to the original TD-MPC2 replay format. The first Joint RL update is at transition 75, then one update every 25 transitions, for 398 updates per stream; the 100-transition real smoke performs two updates. This matches the decision dynamics-only transition cadence, though each Joint RL update invokes both original Adam optimizers and target-Q/scale behavior. Joint RL collects with `eval_mode=False`, while the dynamics-only runner uses `eval_mode=True`; those online trajectories are therefore not action-matched. Both streams start independently from the selected nominal checkpoint. No Reacher Joint RL held-out evaluator is implemented yet, and no causal performance comparison should use the online returns alone.
+Reacher uses only the nominal-validation selection JSON, requiring its checkpoint path, model SHA256 and configuration fingerprint to match. It covers the existing 24 physical conditions (D0/D1/M0/M1 × six severities), three independent adaptation seeds, 50-step episodes and 10,000 transitions per stream. It saves complete episodes to the original TD-MPC2 replay format. The first Joint RL update is at transition 75, then one update every 25 transitions, for 398 updates per stream; the 100-transition real smoke performs two updates. This matches the decision dynamics-only transition cadence, though each Joint RL update invokes both original Adam optimizers and target-Q/scale behavior. Joint RL collects with `eval_mode=False`, while the dynamics-only runner uses `eval_mode=True`; those online trajectories are therefore not action-matched. Both streams start independently from the selected nominal checkpoint. Do not infer held-out performance from online returns.
 
 Run from the updated checkout's `tdmpc2/` directory, with fresh output directories and a GPU memory check. Keep `OUT` and the selected checkpoint at their existing absolute `/home/jhkim/repos/tdmpc2/results/...` paths. `--allow-shared-gpu` permits the existing Reacher and HalfCheetah jobs to remain on GPU 0, provided the memory guard passes. The GPU-throughput estimate from the dynamics-only smoke does not apply to Joint RL.
 
@@ -36,6 +36,32 @@ tail -n 50 -f "$JOINT/runs-fixed.log"
 ```
 
 The Reacher full run is 72 × 10,000 = 720,000 interactions and 28,656 Joint RL updates. Smoke validates mechanics, not the full runtime or scientific outcome. Do not start a second copy into an existing output directory.
+
+## Reacher held-out evaluation after training PASS
+
+The explicit `evaluate` command reloads each final snapshot into a fresh selected-checkpoint agent, verifies model/optimizer/scale state and snapshot SHA256, then evaluates the same 20 held-out seeds under the fixed shift and nominal physics. It also computes one-step latent error on the existing hashed Frozen trajectories. All evaluation updates are disabled. The root summary averages evaluation seeds within each adapted model, then uses adaptation seed (n=3) for uncertainty. The complete 72-snapshot evaluation is 2,880 control episodes (144,000 transitions) plus 1,440 fixed-data prediction episodes. The training source hashes remain pinned; the runner's source hash may differ because this evaluation command was added after training. Use a new output directory, and exclude a pilot from full aggregation.
+
+```bash
+SNAPSHOT="$JOINT/runs-fixed/joint0_damping-k1.5-full-joint-seed53000001/snapshot-0010000.pt"
+FROZEN="$OUT/frozen-home-01"
+python -u "$RUNNER" evaluate --task reacher --gpu 0 --allow-shared-gpu \
+  --checkpoint "$CHECKPOINT" --selection "$SELECTION" --frozen "$FROZEN" \
+  --snapshot "$SNAPSHOT" --output "$JOINT/evaluation-pilot"
+cat "$JOINT/evaluation-pilot/completion.json"
+```
+
+After a PASS pilot, run all final snapshots. The trained `runs-fixed/` and nominal checkpoint remain read-only.
+
+```bash
+nohup python -u "$RUNNER" evaluate --task reacher --gpu 0 --allow-shared-gpu \
+  --checkpoint "$CHECKPOINT" --selection "$SELECTION" --frozen "$FROZEN" \
+  --runs "$JOINT/runs-fixed" --output "$JOINT/evaluation-full" \
+  > "$JOINT/evaluation-full.log" 2>&1 < /dev/null &
+echo $! > "$JOINT/evaluation-full.pid"
+tail -n 50 -f "$JOINT/evaluation-full.log"
+```
+
+`reacher_joint_control.csv`, `reacher_joint_prediction.csv` and `reacher_joint_seed_summary.csv` retain per-seed results and adaptation-seed uncertainty. Do not merge pilot rows into the full output.
 
 ## Original HalfCheetah protocol
 
