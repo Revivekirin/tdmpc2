@@ -1,0 +1,45 @@
+usage: run_dynamics_q.py [-h] [--config CONFIG] [--checkpoint CHECKPOINT]
+                         [--reference REFERENCE] [--ttt-runs TTT_RUNS]
+                         [--runs RUNS] --output OUTPUT
+                         [--smoke-result SMOKE_RESULT] [--audit AUDIT]
+                         [--mode {prediction,shifted,nominal}]
+                         [--prediction PREDICTION] [--shifted SHIFTED]
+                         [--nominal NOMINAL] [--ttt-final TTT_FINAL]
+                         [--joint-final JOINT_FINAL]
+                         [--parameter {bthigh_damping,torso_mass}]
+                         [--severity SEVERITY] [--seed SEED] [--gpu GPU]
+                         [--allow-shared-gpu] [--resume] [--cpu-fixture]
+                         {smoke,run,audit,evaluate,aggregate,status}
+
+Isolated Dynamics+Q adaptation, audit and held-out evaluation. No automatic
+jobs.
+
+positional arguments:
+  {smoke,run,audit,evaluate,aggregate,status}
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG
+  --checkpoint CHECKPOINT
+  --reference REFERENCE
+                        Existing physical-severity-750k-v1
+  --ttt-runs TTT_RUNS   Existing fixed-frozen/fixed-decision parent
+  --runs RUNS           Completed Dynamics+Q matrix
+  --output OUTPUT
+  --smoke-result SMOKE_RESULT
+  --audit AUDIT
+  --mode {prediction,shifted,nominal}
+  --prediction PREDICTION
+  --shifted SHIFTED
+  --nominal NOMINAL
+  --ttt-final TTT_FINAL
+  --joint-final JOINT_FINAL
+  --parameter {bthigh_damping,torso_mass}
+  --severity SEVERITY
+  --seed SEED
+  --gpu GPU
+  --allow-shared-gpu
+  --resume              Skip verified PASS children; archive incomplete
+                        children; no mid-stream resume
+  --cpu-fixture         Smoke only: real Q math on synthetic CPU data, not
+                        physical/CUDA evidence
