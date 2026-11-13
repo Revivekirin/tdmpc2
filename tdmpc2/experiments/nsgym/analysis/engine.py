@@ -70,13 +70,129 @@ def figures(out,summaries,comparisons,coupling):
     draw('q_distribution',[r for r in summaries if r['kind']=='q_immediate' and r['metric'] in ('q','entropy','bellman_residual')])
     draw('planning',[r for r in summaries if r['kind'] in ('q_planning','q_ranking','q_terminal','q_counterfactual')])
     if coupling:
-        fig,ax=plt.subplots(figsize=(9,6))
-        for task in sorted({r['task'] for r in coupling}):
-            rr=[r for r in coupling if r['task']==task];ax.scatter([r['mse_improvement'] for r in rr],[r['mean_return_improvement'] for r in rr],label=task,alpha=.65)
-        ax.axhline(0,color='gray');ax.axvline(0,color='gray');ax.set(xlabel='Frozen MSE − adapted MSE',ylabel='Adapted return − Frozen return',title='Matched adaptation streams; descriptive association');ax.legend();fig.tight_layout();fig.savefig(out/'prediction_vs_control.png',dpi=140);plt.close(fig)
+        prediction_control_figure(out,coupling)
         outputs.append(dict(figure='prediction_vs_control.png',rows=coupling,value_column='mean_return_improvement'))
     (out/'figure_data.json').write_text(json.dumps(outputs,indent=2))
     return outputs
+
+
+def prediction_control_figure(out, coupling):
+    import matplotlib.pyplot as plt
+    tasks=sorted({r['task'] for r in coupling})
+    fig,axes=plt.subplots(1,len(tasks),figsize=(7*len(tasks),5),squeeze=False)
+    for ax,task in zip(axes[0],tasks):
+        rows=[r for r in coupling if r['task']==task]
+        for method in sorted({r['method'] for r in rows}):
+            rr=[r for r in rows if r['method']==method]
+            ax.scatter([float(r['mse_improvement']) for r in rr],[float(r['mean_return_improvement']) for r in rr],label=method,alpha=.65)
+        ax.axhline(0,color='gray');ax.axvline(0,color='gray')
+        ax.set(xlabel='Frozen MSE − adapted MSE (within-task units)',ylabel='Adapted return − Frozen return (task units)',title=task+'; descriptive seed/condition points')
+        ax.legend();ax.grid(alpha=.15)
+    fig.suptitle('Prediction improvement does not guarantee control improvement; independent task axes')
+    fig.tight_layout();fig.savefig(out/'prediction_vs_control.png',dpi=150);plt.close(fig)
+
+
+def research_figures(out, records):
+    """Paired effects on common held-out seeds, in task-specific physical units."""
+    from .statistics import summary
+    import matplotlib.pyplot as plt
+    from statistics import mean
+    identity=('task','cohort_id','schedule','shift_parameter','severity_multiplier','metric','kind')
+    baseline=defaultdict(dict);groups=defaultdict(dict)
+    wanted={'episode_return','latent_mse','reward_dist','reward_ctrl','forward_velocity','control_cost','distance_mean','distance_final'}
+    for r in records:
+        if r['kind'] not in ('shifted','fixed_bank') or r['metric'] not in wanted:continue
+        key=tuple(r[k] for k in identity)
+        if r['method']=='frozen':baseline[key][r['evaluation_seed']]=r
+        elif r['method'] in ('dynamics_only','dynamics_q','joint'):
+            groups[key+(r['method'],r['adaptation_budget'],r['adaptation_seed'])][r['evaluation_seed']]=r
+    units=[]
+    for key,rr in groups.items():
+        ref=baseline.get(key[:len(identity)],{})
+        if not rr or set(rr)!=set(ref):continue
+        metric=key[5];a=mean(r['value'] for r in rr.values());b=mean(r['value'] for r in ref.values())
+        if metric=='latent_mse':
+            if b<=0:continue
+            effect=100*(b-a)/b
+        else:effect=a-b
+        units.append(dict(zip(identity+('method','adaptation_budget','adaptation_seed'),key),effect=effect,
+            adapted_mean=a,frozen_mean=b,n_eval=len(rr),nominal_parameter=next(iter(rr.values()))['nominal_parameter'],
+            source_records=';'.join(sorted({r['source_record_id'] for r in list(rr.values())+list(ref.values())}))))
+    table(out,'research_paired_seed_effects.csv',units)
+    cond=defaultdict(list)
+    for r in units:cond[tuple(r[k] for k in identity+('method','adaptation_budget'))].append(r)
+    results=[]
+    for key,rr in cond.items():
+        results.append(dict(zip(identity+('method','adaptation_budget'),key),**summary([r['effect'] for r in rr],key[0]),
+            n_eval=rr[0]['n_eval'],nominal_parameter=rr[0]['nominal_parameter']))
+    table(out,'research_effect_statistics.csv',results)
+    colors={'dynamics_only':'#0072B2','dynamics_q':'#D55E00','joint':'#009E73'}
+    labels={'episode_return':'Return difference (adapted − Frozen) ↑', 'latent_mse':'Fixed-bank MSE reduction (%) ↑',
+        'reward_dist':'Distance reward difference ↑','reward_ctrl':'Action penalty reward difference ↑',
+        'forward_velocity':'Forward velocity difference (m/s) ↑','control_cost':'Control cost difference ↓',
+        'distance_mean':'Mean target distance difference (m) ↓','distance_final':'Final target distance difference (m) ↓'}
+    pages=sorted({(r['task'],r['cohort_id'],r['schedule'],r['adaptation_budget']) for r in results})
+    for page,(task,cohort,schedule,budget) in enumerate(pages):
+        rr=[r for r in results if (r['task'],r['cohort_id'],r['schedule'],r['adaptation_budget'])==(task,cohort,schedule,budget)]
+        metrics=['episode_return','latent_mse']+(['reward_dist','reward_ctrl','distance_mean','distance_final'] if task=='reacher' else ['forward_velocity','control_cost'])
+        metrics=[m for m in metrics if any(r['metric']==m for r in rr)]
+        params=sorted({r['shift_parameter'] for r in rr})
+        fig,axes=plt.subplots(len(params),len(metrics),figsize=(4*len(metrics),3.1*len(params)),squeeze=False)
+        for i,p in enumerate(params):
+            for j,m in enumerate(metrics):
+                ax=axes[i,j]
+                for method,color in colors.items():
+                    vv=sorted([r for r in rr if r['shift_parameter']==p and r['metric']==m and r['method']==method],key=lambda r:float(r['severity_multiplier']))
+                    if not vv:continue
+                    ax.plot([float(r['severity_multiplier']) for r in vv],[r['mean'] for r in vv],color=color,label=method)
+                    for r in vv:
+                        x=float(r['severity_multiplier'])
+                        seeds=cond[tuple(r[k] for k in identity+('method','adaptation_budget'))]
+                        ax.scatter([x]*len(seeds),[s['effect'] for s in seeds],s=14,color=color,alpha=.6)
+                        ax.scatter(x,r['median'],marker='_',s=60,color=color)
+                        if r['ci_low'] is not None:ax.vlines(x,r['ci_low'],r['ci_high'],color=color,lw=2,alpha=.4)
+                nominal=next((r['nominal_parameter'] for r in rr if r['shift_parameter']==p),'')
+                ax.axhline(0,color='black',lw=.7);ax.axvline(1,color='gray',ls=':',lw=.7)
+                nominal_label=f'{float(nominal):.6g}' if nominal not in ('',None) else 'not recorded'
+                ax.set(title=f'{p}\nnominal={nominal_label}',xlabel='Applied parameter = nominal × multiplier',ylabel=labels[m]);ax.grid(alpha=.15)
+        axes[0,0].legend(fontsize=8)
+        fig.suptitle(f'{task} | {schedule} | adaptation budget {budget} | checkpoint {cohort[:12]}\nLines: seed means; dots: adaptation seeds; ticks: medians; bars: seed bootstrap 95% CI. k=1: nominal aliases. Joint own-encoder MSE excluded.',fontsize=11)
+        fig.tight_layout(rect=(0,0,1,.94));fig.savefig(out/f'research_effects_{task}_{page+1}.png',dpi=150);plt.close(fig)
+    # Report Q coverage for both tasks, including explicit absent panels.
+    qr=[r for r in records if r['kind']=='q_immediate' and r['metric'] in ('q','entropy','ensemble_std')]
+    qgroups=defaultdict(list)
+    for r in qr:
+        unit=r['adaptation_seed'] if r['method']!='frozen' else r['evaluation_seed']
+        qgroups[tuple(r[k] for k in ('task','cohort_id','schedule','shift_parameter','severity_multiplier','method','metric'))+(unit,)].append(r['value'])
+    qunits=[dict(zip(('task','cohort_id','schedule','shift_parameter','severity_multiplier','method','metric','sampling_seed'),k),value=mean(v)) for k,v in qgroups.items()]
+    nominals={(r['task'],r['cohort_id'],r['shift_parameter']):r['nominal_parameter'] for r in qr}
+    for r in qunits:r['nominal_parameter']=nominals.get((r['task'],r['cohort_id'],r['shift_parameter']),'not recorded')
+    table(out,'research_q_seed_means.csv',qunits)
+    q_evidence_figure(out,qunits)
+
+
+def q_evidence_figure(out, qunits):
+    import matplotlib.pyplot as plt
+    colors={'dynamics_only':'#0072B2','dynamics_q':'#D55E00','joint':'#009E73','frozen':'gray'}
+    keys=sorted({(r['task'],r['cohort_id'],r['schedule'],r['shift_parameter']) for r in qunits})
+    keys += [(task,'','','NO MATCHED HELD-OUT Q DATA') for task in ('halfcheetah','reacher') if not any(r['task']==task for r in qunits)]
+    fig,axes=plt.subplots(len(keys),3,figsize=(18,4*len(keys)),squeeze=False)
+    for i,key in enumerate(keys):
+        for j,metric in enumerate(('q','entropy','ensemble_std')):
+            ax=axes[i,j];rr=[r for r in qunits if (r['task'],r['cohort_id'],r['schedule'],r['shift_parameter'])==key and r['metric']==metric]
+            if not rr:
+                ax.text(.5,.5,'NO MATCHED HELD-OUT Q DATA\nTraining batch means cannot replace\nstate/action-level Q distributions',ha='center',va='center',transform=ax.transAxes)
+            else:
+                conditions=sorted({(float(r['severity_multiplier']),r['method']) for r in rr})
+                for x,k in enumerate(conditions):
+                    vals=[float(r['value']) for r in rr if (float(r['severity_multiplier']),r['method'])==k]
+                    ax.scatter([x]*len(vals),vals,s=18,color=colors[k[1]],alpha=.65)
+                short={'frozen':'F','dynamics_only':'D','dynamics_q':'DQ','joint':'J'}
+                ax.set_xticks(range(len(conditions)),[f'×{k[0]:g} {short[k[1]]}' for k in conditions],rotation=90,fontsize=8)
+            nominal=rr[0].get('nominal_parameter','not recorded') if rr else 'not recorded'
+            ax.set(title=f'{key[0]} | {key[3]} | {metric}\nnominal={nominal}; applied=nominal × k',ylabel='Sampling-seed mean');ax.grid(alpha=.15)
+    fig.suptitle('Q evidence: seed means, not categorical histograms. F=Frozen, D=Dynamics-only, DQ=Dynamics+Q, J=Joint\nEach parameter and severity kept separate. Task Q scales differ; entropy/spread are not calibrated uncertainty.')
+    fig.tight_layout(rect=(0,0,1,.94));fig.savefig(out/'research_q_evidence.png',dpi=150);plt.close(fig)
 
 
 def coverage(catalog,records):
@@ -91,7 +207,6 @@ def coverage(catalog,records):
                 if method=='joint' and kind=='fixed_bank':kind='joint_self_consistency'
                 if not any(r['task']==task and r['method']==method and r['kind']==kind for r in records):rows.append(dict(task=task,method=method,analysis=kind,metric='',evidence='MISSING',canonical_records=0,sources=0))
         for kind in ('nominal_validation','physical','fixed_bank','shifted','nominal','q_immediate','q_planning'):
-            if task=='reacher' and kind.startswith('q_'):continue
             if not any(r['task']==task and r['kind']==kind for r in records):rows.append(dict(task=task,method='',analysis=kind,metric='',evidence='MISSING',canonical_records=0,sources=0))
     return rows
 
@@ -158,7 +273,9 @@ def run(args):
             wall_seconds=first(d,'wall_seconds','training_wall_seconds'),source_path=training['path']))
     table(out,'ADAPTATION_COSTS.csv',costs)
     for name,data in [('cross_task_normalized.csv',normalized_comparisons(rec.rows,comparisons)),('adapted_method_contrasts.csv',contrasts),('canonical_records.csv',rec.rows),('statistical_summary.csv',summaries),('comparisons.csv',comparisons),('per_adaptation_stream.csv',streams),('nominal_retention.csv',nominal_comparisons),('prediction_improvements.csv',pred),('prediction_control_pairs.csv',coupling),('TRAINING_DIAGNOSTICS.csv',rec.training),('SOURCE_COVERAGE.csv',cov),('DUPLICATE_RECORDS.csv',rec.duplicates),('INVALID_SOURCES.csv',catalog.issues)]:table(out,name,data)
-    if not args.no_plots:figures(out,summaries,comparisons,coupling)
+    if not args.no_plots:
+        figures(out,summaries,comparisons,coupling)
+        research_figures(out,rec.rows)
     from .regression import validate
     result=validate(catalog,rec,out,summaries,comparisons,args.unified_output)
     result['missing_metric_families']=sum(r['evidence']=='MISSING' for r in cov)
@@ -177,3 +294,76 @@ def run(args):
     (out/'completion.json').write_text(json.dumps(done,indent=2))
     print(json.dumps(done,indent=2),flush=True)
     if result['counts'].get('FAIL',0):raise SystemExit(1)
+
+
+def research_review(package, base_report, out):
+    """Explicit CSV review mode; does not claim unavailable model-byte verification."""
+    import csv
+    import math
+    package=Path(package).resolve();base_report=Path(base_report).resolve();out=Path(out).resolve()
+    if out.exists():raise ValueError('Choose a new review output directory')
+    hashes={}
+    def read(p):
+        hashes[str(p)]=sha256(p)
+        return json.loads(p.read_text())
+    def rows(p):
+        hashes[str(p)]=sha256(p)
+        with p.open() as f:return list(csv.DictReader(f))
+    base_done=read(base_report/'completion.json')
+    if base_done['regression']['counts'].get('FAIL',0):raise ValueError('Base numerical regression failed')
+    base_prov=read(base_report/'SOURCE_PROVENANCE.json')
+    if not base_prov['raw_files_unchanged']:raise ValueError('Base sources changed during analysis')
+    # Reuse only measurements admitted by the strict analyzer, not its rejected inputs.
+    records=rows(base_report/'canonical_records.csv')
+    for r in records:r['value']=float(r['value'])
+    baseline={}
+    for r in records:
+        if r['task']=='reacher' and r['method']=='frozen' and r['kind'] in ('shifted','fixed_bank'):
+            baseline[(r['shift_parameter'],float(r['severity_multiplier']),r['evaluation_seed'],r['kind'],r['metric'])]=r
+    batches={stage:read(package/stage/'completion.json') for stage in ('runs','audit','prediction','control','nominal-retention','comparison')}
+    if any(r['status']!='PASS' for r in batches.values()):raise ValueError('All six stages must have PASS')
+    names=batches['runs']['completed']
+    if len(names)!=72 or len(set(names))!=72:raise ValueError('Expected complete 72-stream Reacher matrix')
+    added=[];checks=[]
+    for stage,file,kind in [('control','shifted.csv','shifted'),('prediction','prediction.csv','fixed_bank')]:
+        if set(batches[stage]['completed'])!=set(names):raise ValueError('Incomplete held-out model matrix')
+        for name in names:
+            train=read(package/'runs'/name/'completion.json');done=read(package/stage/name/'completion.json')
+            if train['status']!='PASS' or done['status']!='PASS' or train['snapshot_sha256']!=done['snapshot_sha256']:raise ValueError('Snapshot metadata mismatch')
+            p=package/stage/name/file;rr=rows(p)
+            if hashes[str(p)]!=done['csv_sha256']:raise ValueError('CSV hash mismatch: '+str(p))
+            if len(rr)!=20 or {int(r['seed']) for r in rr}!=set(range(54000001,54000021)):raise ValueError('Incomplete evaluation seeds')
+            ident=train['identity']
+            meta=read(package/'runs'/name/'manifest.json')
+            checkpoint_hash=meta['selection']['model_sha256']
+            for i,r in enumerate(rr):
+                if r['snapshot_sha256']!=done['snapshot_sha256']:raise ValueError('Row snapshot mismatch')
+                if r['parameter']!=ident['parameter'] or float(r['severity'])!=float(ident['severity']) or int(r['adaptation_seed'])!=int(ident['adaptation_seed']):raise ValueError('Row identity mismatch')
+                metrics=('latent_mse',) if kind=='fixed_bank' else ('episode_return','reward_dist','reward_ctrl','distance_mean','distance_final')
+                for metric in metrics:
+                    key=(r['parameter'],float(r['severity']),r['seed'],kind,metric)
+                    b=baseline.get(key)
+                    if not b:raise ValueError('Missing matched Frozen baseline: '+str(key))
+                    if b['cohort_id']!=checkpoint_hash:raise ValueError('Nominal checkpoint identity mismatch')
+                    value=float(r[metric])
+                    if not math.isfinite(value):raise ValueError('Nonfinite observation')
+                    if kind=='fixed_bank' and not math.isclose(float(r['frozen_latent_mse']),b['value'],rel_tol=1e-5,abs_tol=1e-12):raise ValueError('Fixed-bank baseline differs')
+                    added.append({**b,'method':'dynamics_q','adaptation_budget':'10000','adaptation_seed':r['adaptation_seed'],
+                        'value':value,'evidence':'CSV_HASH_VERIFIED_MODEL_HASH_RECORDED_ONLY','source_path':str(p),
+                        'source_record_id':str(p)+':'+str(i+2),'source_sha256':hashes[str(p)],'model_hash':done['snapshot_sha256']})
+            checks.append(dict(stage=stage,stream=name,rows=len(rr),csv_sha256=hashes[str(p)],snapshot_sha256=done['snapshot_sha256'],model_bytes_verified=False))
+    # Avoid duplicating DQ if a later strict report already admits these records.
+    records=[r for r in records if not (r['task']=='reacher' and r['method']=='dynamics_q')]+added
+    out.mkdir(parents=True)
+    (out/'manifest.json').write_text(json.dumps(dict(no_training_or_simulator=True,mode='explicit_review_package',model_bytes_verified=False)))
+    table(out,'review_package_checks.csv',checks);table(out,'review_added_measurements.csv',added)
+    research_figures(out,records)
+    streams,comparisons=paired_improvements(records);pred=prediction_improvements(records)
+    pairs=prediction_control_pairs(streams,pred)
+    table(out,'comparisons.csv',comparisons);table(out,'prediction_control_pairs.csv',pairs)
+    prediction_control_figure(out,pairs)
+    provenance=dict(inputs=hashes,analysis_sha256=sha256(Path(__file__)),model_bytes_verified=False,
+        limitation='Reacher DQ CSV bytes and recorded training/evaluation snapshot hashes agree; snapshot binaries were not provided. Strict base report excludes them. This is saved-result review, not independent model execution verification.')
+    (out/'REVIEW_PROVENANCE.json').write_text(json.dumps(provenance,indent=2))
+    done=dict(status='PASS_WITH_COVERAGE_GAPS',review_csv_checks=len(checks),reacher_dq_models=72,reacher_dq_measurements=len(added),model_bytes_verified=False,reacher_heldout_q='NOT_MEASURED_IN_PACKAGE')
+    (out/'completion.json').write_text(json.dumps(done,indent=2));print(json.dumps(done,indent=2))

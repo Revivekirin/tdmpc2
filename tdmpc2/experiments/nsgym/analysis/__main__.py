@@ -7,7 +7,7 @@ from .schema import read_required
 from . import sources
 
 OPERATIONS=('discover','inventory','validate','nominal','physical','frozen','adaptation','q_distribution',
-            'planning','cross_task','full','cleanup_preview')
+            'planning','cross_task','full','research_review','cleanup_preview')
 FORMATS={'ttt':'ttt','budgets':'budgets','severity':'physical','reacher':'reacher','diagnostics':'diagnostics'}
 
 
@@ -25,6 +25,7 @@ def main(argv=None):
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--config',type=Path,default=Path(__file__).with_name('config.json'))
     parser.add_argument('--no-plots',action='store_true')
+    parser.add_argument('--review-package',type=Path,help='Completed Reacher DQ CSV review package; snapshot byte verification is explicitly unavailable')
     parser.add_argument('--shift-family',default='all')
     parser.add_argument('--severity',default='all')
     parser.add_argument('--schedule',default='all')
@@ -59,6 +60,10 @@ def main(argv=None):
     from . import engine
     if a.operation=='cleanup_preview':
         raise ValueError('Cleanup is not part of the read-only raw-to-report pipeline')
+    if a.operation=='research_review':
+        if not a.review_package or not a.unified_output:parser.error('research_review requires --review-package and --unified-output')
+        engine.research_review(a.review_package,a.unified_output,a.output)
+        return
     engine.run(a)
 
 

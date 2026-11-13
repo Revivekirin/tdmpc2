@@ -88,3 +88,29 @@ PYTHONPATH=tdmpc2 MPLCONFIGDIR=/tmp/mpl-nsgym \
 ```
 
 `full` includes raw-to-report regression and source immutability checks. Running `validate` separately repeats ingestion; it is optional after a successful full run. The task-specific and Q/planning commands above use the same tested CLI; their dispatch and new-method inclusion are also checked with temporary fixtures. A genuinely new schema or adaptation procedure still needs explicit schema/registry support; a new run ID of a supported procedure does not.
+
+### Research interpretation panels
+
+`full` also produces `research_effects_<task>_*.png`, `research_paired_seed_effects.csv`,
+`research_effect_statistics.csv`, and `research_q_evidence.png`. Each effect uses complete,
+matched evaluation seed sets within task/checkpoint/parameter/severity/schedule/budget;
+bootstrap uncertainty uses adaptation seeds. Positive return/reward differences and MSE
+reduction indicate improvement; negative distance/cost differences indicate improvement.
+Joint own-encoder MSE is not placed on the fixed-encoder MSE panel. All severity labels,
+including nominal aliases, remain visible. Q seed means are explicitly distinguished
+from categorical distributions; missing Reacher held-out Q evidence is reported as a gap.
+`prediction_vs_control.png` uses independent task axes to avoid hiding Reacher's scale.
+
+For a completed Reacher DQ review ZIP that intentionally omits model binaries, use the
+explicit `research_review` operation. It preserves the strict pipeline's snapshot-byte
+requirements, verifies evaluation CSV hashes and matching recorded training/evaluation
+snapshot identities, and checks the nominal checkpoint against admitted Frozen baselines.
+Outputs are labelled `model_bytes_verified: false`; this mode is saved-result analysis,
+not an independent model-integrity audit.
+
+```bash
+python -m experiments.nsgym.analysis research_review \
+  --review-package /absolute/path/reacher-dynamics-q-v1 \
+  --unified-output /absolute/path/strict-raw-report \
+  --output /absolute/path/new-research-review
+```

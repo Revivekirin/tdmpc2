@@ -85,6 +85,8 @@ class Catalog:
             task=task_of(meta,meta['identity'],registry); method=METHODS.get(meta['identity'].get('method'),'')
             if not task or not method:continue
             status,reason=self.gate(p.parent)
+            if status=='PASS' and done.get('snapshot_sha256') and not any(p.parent.glob('snapshot-*.pt')):
+                status,reason='EXCLUDED','Completed training copy has no saved snapshot bytes'
             entry=dict(path=self.rel(p.parent),task=task,method=method,stage='adaptation',status=status,reason=reason,
                        identity=meta['identity'],meta=meta,done=done)
             self.training[p.parent]=entry
@@ -182,7 +184,7 @@ class Catalog:
         if snap and snap.parent in self.training:return self.training[snap.parent]
         digest=done.get('snapshot_sha256',meta.get('snapshot_sha256'))
         if digest:
-            matches=[v for v in self.training.values() if v['done'].get('snapshot_sha256')==digest]
+            matches=[v for v in self.training.values() if v['status']=='PASS' and v['done'].get('snapshot_sha256')==digest]
             if matches and len({json.dumps(v['identity'],sort_keys=True) for v in matches})==1:return sorted(matches,key=lambda v:v['path'])[0]
         return None
     def training_batch_complete(self,training):

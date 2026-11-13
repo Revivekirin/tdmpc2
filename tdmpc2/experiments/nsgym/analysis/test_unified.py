@@ -46,6 +46,43 @@ def fixture(root,seed=1,name='arbitrary-run',method='decision',task='halfcheetah
 
 
 class RawPipelineTests(unittest.TestCase):
+    def test_review_package_rejects_csv_hash_mismatch(self):
+        from .engine import research_review
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);package=root/'package';base=root/'base';names=[f'stream{i}' for i in range(72)]
+            write_json(base/'completion.json',{'regression':{'counts':{}}})
+            write_json(base/'SOURCE_PROVENANCE.json',{'raw_files_unchanged':True})
+            write_csv(base/'canonical_records.csv',[dict(task='reacher',method='frozen',kind='shifted',
+                shift_parameter='joint0_damping',severity_multiplier='1.5',evaluation_seed='1',metric='episode_return',value=0)])
+            for stage in ('runs','audit','prediction','control','nominal-retention','comparison'):
+                write_json(package/stage/'completion.json',dict(status='PASS',completed=names))
+            for stage in ('runs','control'):
+                write_json(package/stage/names[0]/'completion.json',dict(status='PASS',snapshot_sha256='abc',csv_sha256='wrong'))
+            write_csv(package/'control'/names[0]/'shifted.csv',[dict(seed=54000001,episode_return=-3)])
+            with self.assertRaisesRegex(ValueError,'CSV hash mismatch'):
+                research_review(package,base,root/'out')
+            self.assertFalse((root/'out').exists())
+
+    def test_research_panels_pair_seeds_and_reject_partial_sets(self):
+        from .engine import research_figures
+        with tempfile.TemporaryDirectory() as tmp:
+            base=dict(task='reacher',cohort_id='checkpoint',schedule='fixed',
+                shift_parameter='joint0_damping',severity_multiplier='1.5',
+                metric='episode_return',kind='shifted',nominal_parameter=1)
+            records=[]
+            for seed,value in [('1',-3),('2',-5)]:
+                records.append(dict(base,method='frozen',adaptation_budget='0',
+                    adaptation_seed='',evaluation_seed=seed,value=value,source_record_id='F:'+seed))
+                records.append(dict(base,method='dynamics_q',adaptation_budget='10000',
+                    adaptation_seed='7',evaluation_seed=seed,value=value+.2,source_record_id='DQ:'+seed))
+            records.append(dict(base,method='joint',adaptation_budget='10000',adaptation_seed='8',
+                evaluation_seed='1',value=-2,source_record_id='J:1'))
+            research_figures(Path(tmp),records)
+            with (Path(tmp)/'research_paired_seed_effects.csv').open() as f: rows=list(csv.DictReader(f))
+            self.assertEqual(len(rows),1)
+            self.assertAlmostEqual(float(rows[0]['effect']),.2)
+            self.assertEqual(rows[0]['n_eval'],'2')
+
     def catalog(self,root):return Catalog(root,CONFIG['tasks'])
     def test_new_run_discovered_and_aggregated_without_configuration_change(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,6 +116,18 @@ class RawPipelineTests(unittest.TestCase):
             self.assertEqual(c[0]['n_adaptation_streams'],1)
             self.assertEqual(c[0]['evaluation_seeds_per_stream'],2)
             self.assertTrue(rec.duplicates)
+    def test_metadata_only_training_copy_does_not_shadow_snapshot(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);train=fixture(root,method='reacher_dynamics_q_v1',task='reacher')
+            mirror=root/'arbitrary-run 2/training'
+            shutil.copytree(train,mirror)
+            (mirror/'snapshot-0003000.pt').unlink()
+            digest=json.loads((train/'completion.json').read_text())['snapshot_sha256']
+            c=self.catalog(root)
+            self.assertEqual(c.training[mirror.resolve()]['status'],'EXCLUDED')
+            selected=c.training_for({'snapshot_sha256':digest},{'snapshot_sha256':digest})
+            self.assertEqual(selected['path'],'arbitrary-run/training')
     def test_own_output_not_rediscovered(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);fixture(root)
