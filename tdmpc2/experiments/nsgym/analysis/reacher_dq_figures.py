@@ -20,6 +20,16 @@ COLOR = dict(zip(METHODS, ('#333333', '#0072B2', '#D55E00', '#009E73')))
 FAMILY_LABEL = {'D0':'joint0 damping', 'D1':'joint1 damping',
                 'M0':'body0 mass', 'M1':'body1 mass'}
 BOOTSTRAPS = 3000
+PAIRED_CONTRASTS = (('dynamics_only','frozen'), ('dynamics_q','frozen'),
+                    ('dynamics_q','dynamics_only'), ('joint','frozen'))
+PAIR_LABEL = {('dynamics_only','frozen'):'D − Frozen',
+              ('dynamics_q','frozen'):'D+Q − Frozen',
+              ('dynamics_q','dynamics_only'):'D+Q − D',
+              ('joint','frozen'):'Joint − Frozen'}
+PAIR_COLOR = {('dynamics_only','frozen'):'#0072B2',
+              ('dynamics_q','frozen'):'#D55E00',
+              ('dynamics_q','dynamics_only'):'#7B3294',
+              ('joint','frozen'):'#009E73'}
 
 
 def read_json(path):
@@ -42,6 +52,29 @@ def ci(matrix, key):
     e=rng.integers(n_eval,size=(BOOTSTRAPS,n_stream,n_eval))
     means=matrix[a,e].mean(axis=(1,2))
     return float(matrix.mean()),float(np.quantile(means,.025)),float(np.quantile(means,.975))
+
+
+def paired_ci(matrix, key):
+    """Descriptive cluster bootstrap: n=3 streams, shared resampled eval seeds."""
+    matrix=np.asarray(matrix,dtype=float)
+    assert matrix.shape==(3,20) and np.isfinite(matrix).all()
+    rng=np.random.default_rng(int.from_bytes(hashlib.sha256(str(key).encode()).digest()[:8],'big'))
+    streams=rng.integers(3,size=(BOOTSTRAPS,3,1))
+    seeds=rng.integers(20,size=(BOOTSTRAPS,1,20))
+    both=matrix[streams,seeds].mean(axis=(1,2))
+    stream_only=matrix[rng.integers(3,size=(BOOTSTRAPS,3))].mean(axis=(1,2))
+    seed_only=matrix[:,rng.integers(20,size=(BOOTSTRAPS,20))].mean(axis=(0,2))
+    limits=lambda x:(float(np.quantile(x,.025)),float(np.quantile(x,.975)))
+    return limits(both),limits(stream_only),limits(seed_only)
+
+
+def variance_parts(matrix):
+    """Orthogonal finite-grid variance partition; residual includes interaction/noise."""
+    matrix=np.asarray(matrix,dtype=float)
+    grand=matrix.mean();stream=matrix.mean(axis=1);seed=matrix.mean(axis=0)
+    return (float(np.mean((seed-grand)**2)),
+            float(np.mean((stream-grand)**2)),
+            float(np.mean((matrix-stream[:,None]-seed[None,:]+grand)**2)))
 
 
 def validate(root, unified):
@@ -89,6 +122,26 @@ def load(root, unified, checkpoint):
     assert set(paired.evaluation_seed)==set(range(54000001,54000021))
     assert set(physical.family)==set(frozen.family)==set(paired.family)==set(FAMILIES)
     assert set(physical.severity)==set(frozen.severity)==set(paired.severity)==set(GRID)
+    # Equal integer labels alone do not establish pairing. Check that each
+    # method's actual run identity refers to the same condition, checkpoint and
+    # prespecified adaptation/evaluation seed lists before using paired rows.
+    selected_seeds={53000001,53000002,53000003}
+    eval_seeds=set(range(54000001,54000021))
+    for family in FAMILIES:
+        parameter=physical.loc[physical.family==family,'parameter'].iloc[0]
+        for k in GRID:
+            for seed in selected_seeds:
+                suffix=f'k{k:g}'
+                dq=read_json(root/f'reacher-dynamics-q-v1/runs/{family}-{suffix}-dynamics-q-seed{seed}/manifest.json')
+                d=read_json(root/f'reacher/preview-v1/adapt-home-01/{family}-{suffix}-decision-seed{seed}/manifest.json')
+                j=read_json(root/f'reacher/preview-v1/full-joint-home-01/runs-fixed/{parameter}-{suffix}-full-joint-seed{seed}/manifest.json')
+                for manifest in (dq,d,j):
+                    identity=manifest['identity']
+                    assert identity['family']==family and identity['parameter']==parameter
+                    assert float(identity['severity'])==k and identity['adaptation_seed']==seed
+                assert dq['identity']['schedule']==j['identity']['schedule']=='fixed'
+                assert dq['selection']['model_sha256']==d['selection']['model_sha256']==j['checkpoint_sha256']==checkpoint
+                assert set(dq['configuration']['evaluation_seeds'])==set(d['config']['evaluation_seeds'])==eval_seeds
     # Check physical baseline and matched held-out comparison on all rows.
     x=paired[paired.kind=='shifted'].merge(frozen[['family','severity','seed','episode_return']],
         left_on=['family','severity','evaluation_seed'],right_on=['family','severity','seed'],validate='many_to_one')
@@ -175,7 +228,7 @@ def nominal_figures(root, nominal, output, figures):
         fig.suptitle('Reacher nominal checkpoint validation | actual candidates: 340k, 670k, 1M\n'
                      'Dots are held-out validation seeds; CI resamples 20 seeds',fontsize=11)
         fig.tight_layout(rect=(0,0,1,.91))
-        draw(output,'main',stem,fig,'Selected 670k nominal baseline and seed variability',
+        draw(output,'supplementary',stem,fig,'Selected 670k nominal baseline and seed variability',
              ['reacher/preview-v1/nominal-home-01/reacher_checkpoint_validation.csv'],figures)
 
 
@@ -199,7 +252,7 @@ def physical_figures(physical, output, figures):
         fig.suptitle(f'{title} | controlled fixed states/actions | 15 bank steps per seed, aggregated to n=5 seeds\n'
                      'Response metric: Δqvel norm; signless magnitude, not locomotion performance',fontsize=11)
         fig.tight_layout(rect=(0,0,1,.94))
-        draw(output,'main',stem,fig,'Physical intervention → measured response → latent mismatch',
+        draw(output,'supplementary',stem,fig,'Physical intervention → measured response → latent mismatch',
              ['reacher/preview-v1/probe-home-01/reacher_physical_response.csv'],figures)
 
 
@@ -224,7 +277,7 @@ def frozen_figures(frozen, output, figures):
         fig.suptitle('Frozen generalization | 20 held-out evaluation seeds per condition\n'
                      'The horizontal k=1 reference is nominal physics; repeated family aliases are not independent tasks',fontsize=11)
         fig.tight_layout(rect=(0,0,1,.94))
-        draw(output,'main',stem,fig,'Baseline severity sensitivity before adaptation',
+        draw(output,'supplementary',stem,fig,'Baseline severity sensitivity before adaptation',
              ['reacher/preview-v1/frozen-home-01/reacher_frozen_severity.csv'],figures)
 
 
@@ -256,24 +309,8 @@ def method_figures(canonical, output, figures):
         fig.suptitle(f'Reacher absolute method comparison | {note}\n'
                      'Bars: 95% hierarchical bootstrap over 3 adaptation streams and 20 evaluation seeds; Frozen resamples seeds only',fontsize=10)
         fig.tight_layout(rect=(0,0,1,.93))
-        draw(output,'main',stem,fig,'Absolute held-out method performance before difference plots',
+        draw(output,'supplementary',stem,fig,'Absolute held-out method performance before difference plots',
              ['canonical_records.csv (path in manifest.json)'],figures)
-        if metric=='episode_return':
-            # Companion view resolves close absolute means without hiding the broad
-            # seed-level uncertainty shown in the primary interval figure.
-            zoom,zoom_axes=plt.subplots(4,1,figsize=(9,12),sharex=True)
-            for family,ax in zip(FAMILIES,zoom_axes):
-                for method in methods:
-                    means=[points_for(canonical,family,k,method,kind,metric).mean() for k in GRID]
-                    ax.plot(GRID,means,'o-',lw=1.4,ms=4,label=LABEL[method],color=COLOR[method])
-                finish_axes(ax,f'{family}: {FAMILY_LABEL[family]}',ylabel)
-            zoom_axes[0].legend(ncol=4,fontsize=8)
-            zoom.suptitle('Reacher shifted return | absolute means, zoomed scale\n'
-                'Mean-only display: assess uncertainty in the companion 95% CI figure; close lines are not significance',fontsize=10)
-            zoom.tight_layout(rect=(0,0,1,.93))
-            draw(output,'main','reacher_methods_shifted_return_absolute_zoom',zoom,
-                'Resolve close absolute method means; uncertainty remains in companion figure',
-                ['canonical_records.csv (path in manifest.json)'],figures)
     fig,axes=plt.subplots(4,3,figsize=(15,14),sharex=True)
     for i,family in enumerate(FAMILIES):
         for j,(metric,ylabel) in enumerate([('reward_dist','Distance reward ↑'),('reward_ctrl','Control reward ↑'),('episode_return','Total return ↑')]):
@@ -288,7 +325,7 @@ def method_figures(canonical, output, figures):
     fig.suptitle('Reacher reward decomposition | absolute held-out values | return = distance reward + control reward\n'
                  'Control reward is a negative action penalty; separate panels avoid mixing metric scales',fontsize=11)
     fig.tight_layout(rect=(0,0,1,.94))
-    draw(output,'main','reacher_methods_reward_decomposition',fig,
+    draw(output,'supplementary','reacher_methods_reward_decomposition',fig,
          'Distance improvement and action-cost tradeoff behind return',
          ['canonical_records.csv (path in manifest.json)'],figures)
     pd.DataFrame(stats).drop_duplicates(['family','severity','method','split','metric']).to_csv(output/'tables/method_absolute_statistics.csv',index=False)
@@ -380,6 +417,195 @@ def supplementary(paired, output, figures):
     return stream
 
 
+def paired_evidence(paired, online, output):
+    """One condition at a time; never count 60 cells as 60 adaptation runs."""
+    shifted=paired[paired.kind=='shifted']
+    source={'frozen':'Frozen','dynamics_only':'Dynamics-only',
+            'dynamics_q':'Dynamics+Q','joint':'Joint RL'}
+    metrics=('episode_return','distance_mean','distance_final','reward_dist','reward_ctrl','latent_mse')
+    rows=[];variance=[];matrices={}
+    for family in FAMILIES:
+        for k in GRID:
+            group=shifted[(shifted.family==family)&(shifted.severity==k)].copy()
+            assert len(group)==60 and group[['adaptation_seed','evaluation_seed']].duplicated().sum()==0
+            assert set(group.adaptation_seed)=={53000001,53000002,53000003}
+            assert set(group.evaluation_seed)==set(range(54000001,54000021))
+            for metric in metrics:
+                values={}
+                for method in METHODS:
+                    if metric=='latent_mse' and method=='joint':continue
+                    column=({'frozen':'frozen_mse','dynamics_only':'dynamics_mse','dynamics_q':'dq_mse'}[method]
+                            if metric=='latent_mse' else f'{source[method]}_{metric}')
+                    frame=group.pivot(index='adaptation_seed',columns='evaluation_seed',values=column)
+                    assert list(frame.index)==[53000001,53000002,53000003]
+                    assert list(frame.columns)==list(range(54000001,54000021))
+                    matrix=frame.to_numpy(dtype=float)
+                    assert np.isfinite(matrix).all()
+                    if method=='frozen':
+                        assert np.allclose(matrix,matrix[:1],rtol=0,atol=1e-10)
+                    values[method]=matrix
+                    matrices[(family,k,metric,method)]=matrix
+                    if metric in ('episode_return','distance_mean'):
+                        a,b,c=variance_parts(matrix)
+                        variance.append(dict(family=family,severity=k,metric=metric,series=method,
+                            between_evaluation_seed_variance=a,between_adaptation_stream_variance=b,
+                            residual_interaction_variance=c,total_cell_variance=a+b+c,
+                            n_adaptation_streams=1 if method=='frozen' else 3,n_evaluation_seeds=20,
+                            raw_paired_correlation=np.nan))
+                for new,base in PAIRED_CONTRASTS:
+                    if new not in values or base not in values:continue
+                    direction=-1 if metric in ('distance_mean','distance_final','latent_mse') else 1
+                    delta=direction*(values[new]-values[base])
+                    assert delta.shape==(3,20)
+                    both,stream_only,seed_only=paired_ci(delta,(family,k,metric,new,base))
+                    effects=delta.mean(axis=1)
+                    corr=[]
+                    for i in range(3):
+                        x=values[new][i];y=values[base][i]
+                        if np.std(x)>0 and np.std(y)>0:corr.append(float(np.corrcoef(x,y)[0,1]))
+                    correlation=float(np.mean(corr)) if corr else np.nan
+                    q=online[(online.family==family)&(online.severity==k)&(online.transition>=8000)]
+                    qmeans=q.groupby('adaptation_seed')[['q_entropy','q_prediction','q_target']].mean()
+                    assert len(qmeans)==3
+                    rows.append(dict(family=family,severity=k,metric=metric,contrast=PAIR_LABEL[(new,base)],
+                        improvement_direction='lower is better' if direction==-1 else 'higher is better',
+                        frozen_absolute=float(values['frozen'].mean()),
+                        d_absolute=float(values['dynamics_only'].mean()),
+                        dq_absolute=float(values['dynamics_q'].mean()),
+                        joint_absolute=float(values['joint'].mean()) if 'joint' in values else np.nan,
+                        paired_mean=float(delta.mean()),ci_low=both[0],ci_high=both[1],
+                        stream_only_ci_low=stream_only[0],stream_only_ci_high=stream_only[1],
+                        evaluation_seed_only_ci_low=seed_only[0],evaluation_seed_only_ci_high=seed_only[1],
+                        stream_53000001=float(effects[0]),stream_53000002=float(effects[1]),
+                        stream_53000003=float(effects[2]),positive_streams=int((effects>0).sum()),
+                        n_adaptation_streams=3,n_evaluation_seeds=20,
+                        raw_paired_correlation=correlation,
+                        frozen_latent_mse=float(values['frozen'].mean()) if metric=='latent_mse' else float(matrices[(family,k,'latent_mse','frozen')].mean()) if (family,k,'latent_mse','frozen') in matrices else np.nan,
+                        d_latent_mse=float(matrices[(family,k,'latent_mse','dynamics_only')].mean()) if (family,k,'latent_mse','dynamics_only') in matrices else np.nan,
+                        dq_latent_mse=float(matrices[(family,k,'latent_mse','dynamics_q')].mean()) if (family,k,'latent_mse','dynamics_q') in matrices else np.nan,
+                        online_dq_q_entropy=float(qmeans.q_entropy.mean()),
+                        online_dq_q_prediction=float(qmeans.q_prediction.mean()),
+                        online_dq_q_target_gap=float((qmeans.q_prediction-qmeans.q_target).mean()),
+                        uncertainty_label='descriptive 95% hierarchical bootstrap; 3 adaptation clusters'))
+                    if metric in ('episode_return','distance_mean'):
+                        a,b,c=variance_parts(delta)
+                        variance.append(dict(family=family,severity=k,metric=metric,
+                            series=PAIR_LABEL[(new,base)],between_evaluation_seed_variance=a,
+                            between_adaptation_stream_variance=b,residual_interaction_variance=c,
+                            total_cell_variance=a+b+c,n_adaptation_streams=3,n_evaluation_seeds=20,
+                            raw_paired_correlation=correlation))
+    effects=pd.DataFrame(rows)
+    # Populate all absolute MSE columns after every condition has been visited.
+    for method,column in [('frozen','frozen_latent_mse'),('dynamics_only','d_latent_mse'),('dynamics_q','dq_latent_mse')]:
+        effects[column]=[float(matrices[(r.family,r.severity,'latent_mse',method)].mean())
+                         for r in effects.itertuples()]
+    effects.to_csv(output/'tables/reacher_paired_effects.csv',index=False)
+    pd.DataFrame(variance).to_csv(output/'tables/reacher_variance_diagnostics.csv',index=False)
+    return effects,pd.DataFrame(variance),matrices
+
+
+def redesigned_figures(effects, variance, matrices, online, stream, output, figures):
+    cols=[('episode_return','Return ↑'),('distance_mean','Mean target distance (m) ↓'),
+          ('reward_dist','Distance reward ↑'),('reward_ctrl','Control reward ↑'),
+          ('latent_mse','Fixed-bank latent MSE ↓')]
+    fig,axes=plt.subplots(4,5,figsize=(25,18),sharex=True)
+    for i,family in enumerate(FAMILIES):
+        for j,(metric,label) in enumerate(cols):
+            ax=axes[i,j]
+            for h,method in enumerate(METHODS):
+                if metric=='latent_mse' and method=='joint':continue
+                vals=[ci(matrices[(family,k,metric,method)],('redesign',family,k,metric,method)) for k in GRID]
+                x=np.asarray(GRID)+(h-1.5)*.018
+                line_panel(ax,x,[v[0] for v in vals],[v[1] for v in vals],[v[2] for v in vals],
+                           label=LABEL[method],color=COLOR[method])
+            if metric=='latent_mse':ax.set_yscale('log')
+            finish_axes(ax,f'{family} {FAMILY_LABEL[family]} | {label}',label)
+            ax.margins(y=.18)
+    axes[0,0].legend(ncol=2,fontsize=8)
+    fig.suptitle('Reacher absolute held-out performance | 20 matched evaluation seeds per condition\n'
+                 '95% seed/stream bootstrap intervals; Joint latent MSE has a changed encoder and is excluded',fontsize=13)
+    fig.subplots_adjust(left=.055,right=.99,bottom=.055,top=.93,wspace=.32,hspace=.48)
+    draw(output,'main','reacher_absolute_performance',fig,'True absolute control and prediction values with unsuppressed uncertainty',
+         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv'],figures)
+
+    fig,axes=plt.subplots(4,2,figsize=(17,17),sharex=True)
+    for i,family in enumerate(FAMILIES):
+        for j,(metric,unit) in enumerate([('episode_return','Return improvement ↑'),('distance_mean','Distance reduction (m) ↑')]):
+            ax=axes[i,j]
+            for h,pair in enumerate(PAIRED_CONTRASTS):
+                label=PAIR_LABEL[pair];rr=effects[(effects.family==family)&(effects.metric==metric)&(effects.contrast==label)].set_index('severity')
+                rr=rr.loc[list(GRID)];x=np.asarray(GRID)+(h-1.5)*.018
+                line_panel(ax,x,rr.paired_mean,rr.ci_low,rr.ci_high,label=label,color=PAIR_COLOR[pair])
+                for s,field in enumerate(('stream_53000001','stream_53000002','stream_53000003')):
+                    ax.scatter(x+(s-1)*.006,rr[field],s=9,alpha=.28,color=PAIR_COLOR[pair],zorder=2)
+            ax.axhline(0,color='black',lw=.8)
+            finish_axes(ax,f'{family} {FAMILY_LABEL[family]} | {unit}',unit)
+            ax.margins(y=.18)
+    axes[0,0].legend(ncol=2,fontsize=8)
+    fig.suptitle('Same-seed paired improvements | dots: three adaptation-stream means\n'
+                 'Bars: descriptive 95% cluster bootstrap (3 streams, 20 shared evaluation seeds); positive distance means lower distance',fontsize=12)
+    fig.subplots_adjust(left=.085,right=.99,bottom=.06,top=.92,wspace=.24,hspace=.45)
+    draw(output,'main','reacher_paired_method_effects',fig,'Paired differences expose method effects despite shared seed difficulty',
+         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv','method run manifests'],figures)
+
+    fig,axes=plt.subplots(4,2,figsize=(16,15),sharex=True)
+    parts=[('between_evaluation_seed_variance','Evaluation seed','#0072B2'),
+           ('between_adaptation_stream_variance','Adaptation stream','#D55E00'),
+           ('residual_interaction_variance','Residual interaction','#009E73')]
+    for i,family in enumerate(FAMILIES):
+        for j,(series,title) in enumerate([('dynamics_q','D+Q absolute return'),('D+Q − D','D+Q − D paired return')]):
+            ax=axes[i,j]
+            rr=variance[(variance.family==family)&(variance.metric=='episode_return')&(variance.series==series)].set_index('severity').loc[list(GRID)]
+            bottom=np.zeros(len(GRID))
+            for column,label,color in parts:
+                y=rr[column].to_numpy()
+                ax.bar(GRID,y,bottom=bottom,width=.13,label=label,color=color);bottom+=y
+            ax.set(title=f'{family} {FAMILY_LABEL[family]} | {title}',xlabel='Severity k',ylabel='Cell-level variance')
+            ax.set_xticks(GRID);ax.axvline(1,color='#777777',ls=':',lw=.8);ax.grid(axis='y',alpha=.18)
+            if j==1:
+                ax.text(.98,.96,f"mean raw pair r={rr.raw_paired_correlation.mean():.4f}",transform=ax.transAxes,
+                        ha='right',va='top',fontsize=8)
+    axes[0,0].legend(ncol=1,fontsize=8)
+    fig.suptitle('Variance partition over 3 streams × 20 matched seeds | residual includes stream–seed interaction\n'
+                 'Bars are descriptive cell variance, not standard errors or independent-run counts',fontsize=12)
+    fig.subplots_adjust(left=.085,right=.99,bottom=.06,top=.91,wspace=.22,hspace=.45)
+    draw(output,'main','reacher_stream_variability',fig,'Diagnose shared evaluation difficulty and stream heterogeneity',
+         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv'],figures)
+
+    fig,axes=plt.subplots(2,2,figsize=(13,10))
+    for family,ax in zip(FAMILIES,axes.flat):
+        rr=stream[stream.family==family]
+        scatter=ax.scatter(rr.d_minus_dq_mse,rr.dq_minus_d_return,c=rr.severity,cmap='viridis',vmin=.5,vmax=2,s=35)
+        ax.axhline(0,color='black',lw=.8);ax.axvline(0,color='black',lw=.8)
+        ax.set(title=f'{family} {FAMILY_LABEL[family]} | n=18 streams',
+               xlabel='D MSE − D+Q MSE ↑',ylabel='D+Q − D return ↑');ax.grid(alpha=.18)
+    fig.colorbar(scatter,ax=list(axes.flat),label='Severity k',shrink=.7)
+    fig.suptitle('Prediction improvement and control change | one point per adaptation stream',fontsize=12)
+    fig.subplots_adjust(left=.09,right=.90,bottom=.08,top=.91,wspace=.27,hspace=.34)
+    draw(output,'main','reacher_prediction_control',fig,'Check whether latent improvement accompanies paired return improvement',
+         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv'],figures)
+
+    fig,axes=plt.subplots(4,3,figsize=(16,15),sharex=True)
+    q=online[online.transition>=8000].copy();q['q_target_gap']=q.q_prediction-q.q_target
+    for i,family in enumerate(FAMILIES):
+        for j,(metric,title) in enumerate([('q_entropy','Categorical entropy'),
+             ('q_prediction','Scalar Q estimate'),('q_target_gap','Mean Q prediction − target')]):
+            ax=axes[i,j];rr=q[q.family==family].groupby(['severity','adaptation_seed'],as_index=False)[metric].mean()
+            values=[]
+            for k in GRID:
+                v=rr.loc[rr.severity==k,metric].to_numpy();assert len(v)==3
+                values.append(ci(v[None,:],('q_companion',family,k,metric)))
+            line_panel(ax,GRID,[v[0] for v in values],[v[1] for v in values],[v[2] for v in values],
+                       label='D+Q online only',color=COLOR['dynamics_q'])
+            finish_axes(ax,f'{family} {FAMILY_LABEL[family]} | {title}',title)
+    axes[0,0].legend(fontsize=8)
+    fig.suptitle('Available Q companion: D+Q online training batches, transitions 8k–10k\n'
+        'HELD-OUT Q DISTRIBUTIONS UNAVAILABLE: no matched logits for JS or four-method entropy; no causal calibration claim',fontsize=12)
+    fig.subplots_adjust(left=.075,right=.99,bottom=.06,top=.91,wspace=.33,hspace=.45)
+    draw(output,'main','reacher_q_companion',fig,'Show observed online Q statistics and explicit held-out distribution coverage gap',
+         ['reacher-dynamics-q-v1/comparison/update_diagnostics.csv'],figures)
+
+
 def write_reports(output, nominal, stream, canonical, figures, checkpoint, provenance):
     gaps=[
         ('E1','Held-out Q entropy for Frozen/D/D+Q/Joint','Reacher stores online D+Q q_entropy averages only; no matched held-out categorical logits/probabilities.'),
@@ -392,7 +618,11 @@ def write_reports(output, nominal, stream, canonical, figures, checkpoint, prove
         ('H3','Bellman residual change vs control association','Requires E3 per-sample held-out residuals.'),
     ]
     caveats={
-        'reacher_methods_shifted_return_absolute_zoom':'Mean-only zoom; use the companion 95% CI figure for uncertainty.',
+        'reacher_absolute_performance':'Large seed variance is retained; read with the linked paired-effect figure.',
+        'reacher_paired_method_effects':'Intervals are descriptive at n=3 adaptation streams; dots show each stream.',
+        'reacher_stream_variability':'Residual includes stream–seed interaction; no independent residual replicate exists.',
+        'reacher_prediction_control':'Prediction–control association is descriptive, not causal.',
+        'reacher_q_companion':'Only online D+Q Q data exist; held-out categorical comparisons are unavailable.',
         'reacher_methods_latent_mse_absolute':'Joint excluded because its encoder changes the latent target; logarithmic y axis.',
         'reacher_methods_reward_decomposition':'Control reward is a negative action penalty, shown in its own panel.',
         'reacher_q_entropy_online_by_severity':'D+Q online training batches only; not held-out or four-method Q distributions.',
@@ -444,7 +674,7 @@ def write_reports(output, nominal, stream, canonical, figures, checkpoint, prove
         'they cannot establish that Q calibration improved or that a Q shift caused a return gain.',
         '', 'Joint frequently has higher shifted return than D+Q in this 10,000-transition comparison, '
         'but this does not show that Joint updates are necessary: optimizer budgets and updated modules differ. '
-        'The zoomed absolute-return plot is mean-only; the companion plot carries the full bootstrap intervals.',
+        'The new main figures show absolute values beside seed-paired effects with individual stream estimates.',
         '', 'Bootstrap intervals in the absolute adaptation figures resample adaptation streams and evaluation seeds hierarchically. '
         'Frozen intervals resample its 20 unique evaluation seeds. Physical probe intervals resample five calibration seeds. '
         'The k=1 rows across four families are nominal-physics aliases, not four independent tasks.',
@@ -462,6 +692,56 @@ def write_reports(output, nominal, stream, canonical, figures, checkpoint, prove
         '- Real candidate returns/regret and a full controllability Gramian were not measured; neither is inferred.']
     (output/'reports/REACHER_DYNAMIC_Q_COVERAGE_GAPS.md').write_text('\n'.join(coverage)+'\n')
     return gaps
+
+
+def redesign_report(output, effects, variance):
+    returns=effects[effects.metric=='episode_return']
+    dq=returns[returns.contrast=='D+Q − D']
+    correlations=dq.raw_paired_correlation.to_numpy()
+    wins=dq.positive_streams.value_counts().sort_index().to_dict()
+    v=variance[(variance.metric=='episode_return')&(variance.series=='dynamics_q')]
+    total=v.total_cell_variance.sum()
+    eval_share=v.between_evaluation_seed_variance.sum()/total
+    stream_share=v.between_adaptation_stream_variance.sum()/total
+    lines=['# Reacher visualization redesign','',
+        'The five linked main figures present absolute performance, paired improvements, variance, '
+        'prediction–control association and the available Q companion. The earlier detailed diagnostics '
+        'remain supplementary. No zoomed mean-only return figure is used.',
+        '', '## Pairing and uncertainty','',
+        'Each condition has three independently adapted streams (seeds 53000001–53000003) and '
+        '20 shared held-out evaluation seeds (54000001–54000020). D, D+Q and Joint run manifests '
+        'were checked for condition, seed, schedule and nominal checkpoint. The same integer seed '
+        'does not imply identical online trajectories after method-specific updates. Frozen is a '
+        'shared baseline, not three independent models. All effects are computed at the same '
+        'evaluation seed and corresponding prespecified adaptation seed. For distance and MSE, '
+        'positive improvement means the adapted method has a lower value.',
+        '', 'Bars in the paired figure are descriptive 95% hierarchical bootstrap intervals '
+        '(resampling 3 streams and the same 20 evaluation seed indices across streams); stream-only '
+        'and evaluation-seed-only intervals are separate columns in `reacher_paired_effects.csv`. '
+        'With only three streams, none of these intervals establishes significance. Dots are '
+        'independent stream effect means; zero is shown explicitly.',
+        '', '## Observed variance structure','',
+        f'Mean raw D+Q–D return correlation across the 24 conditions: {np.nanmean(correlations):.4f}; '
+        'the paired comparison cancels much of the shared evaluation-seed difficulty.',
+        f'Across D+Q absolute-return condition grids, {eval_share:.4%} of finite-grid cell variance '
+        f'is attributable to evaluation-seed means and {stream_share:.4%} to adaptation-stream means. '
+        'These fractions describe the saved 3×20 grid; residual variation includes stream–seed '
+        'interaction and cannot be separated further without replicated measurements.',
+        f'D+Q−D return is positive in all three streams for {wins.get(3,0)}/24 conditions, '
+        f'in two streams for {wins.get(2,0)}/24, in one for {wins.get(1,0)}/24, '
+        f'and in none for {wins.get(0,0)}/24. This is consistency, not a significance test.',
+        '', '## Q evidence boundary','',
+        'The Q companion shows D+Q online-training-batch entropy, scalar Q prediction and '
+        'batch-mean Q prediction minus target at transitions 8k–10k. No matched held-out '
+        'categorical logits or probabilities were saved for the four methods. JS divergence, '
+        'held-out entropy changes, per-sample Bellman residuals and Q-to-control causality '
+        'are therefore not reported.',
+        '', '## Files','',
+        '- `tables/reacher_paired_effects.csv`: absolute values and paired effects for each family, severity, metric and contrast.',
+        '- `tables/reacher_variance_diagnostics.csv`: seed, stream and interaction variance components plus raw paired correlations.',
+        '- `reports/REACHER_DYNAMIC_Q_FIGURE_INDEX.md`: every PNG/SVG and source lineage.',
+    ]
+    (output/'reports/REACHER_VISUALIZATION_REDESIGN.md').write_text('\n'.join(lines)+'\n')
 
 
 def main(argv=None):
@@ -483,6 +763,9 @@ def main(argv=None):
     method_figures(canonical,output,figures)
     q_figures(online,output,figures)
     stream=supplementary(paired,output,figures)
+    effects,variance,matrices=paired_evidence(paired,online,output)
+    redesigned_figures(effects,variance,matrices,online,stream,output,figures)
+    redesign_report(output,effects,variance)
     gaps=write_reports(output,nominal,stream,canonical,figures,checkpoint,provenance)
     inputs=[root/'reacher/preview-v1/nominal-home-01/reacher_checkpoint_validation.csv',
         root/'reacher/preview-v1/probe-home-01/reacher_physical_response.csv',
