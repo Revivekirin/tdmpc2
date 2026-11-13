@@ -132,6 +132,25 @@ class RawPipelineTests(unittest.TestCase):
             self.assertFalse(any(r['method']=='dynamics_q' for r in rec.rows))
             self.assertFalse(rec.c.issues)
             self.assertTrue(any('training batch not complete' in r['reason'] for r in rec.c.excluded))
+    def test_running_nominal_retention_does_not_invalidate_complete_shifted_dq(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root,method='reacher_dynamics_q_v1',task='reacher')
+            source=root/'arbitrary-run/shifted/condition'
+            target=root/'arbitrary-run/nominal-retention/condition'
+            manifest=json.loads((source/'manifest.json').read_text())
+            manifest['mode']='nominal'
+            write_json(target/'manifest.json',manifest)
+            write_json(target/'completion.json',json.loads((source/'completion.json').read_text()))
+            with (source/'shifted.csv').open(newline='') as stream:
+                rows=list(csv.DictReader(stream))
+            for row in rows:row['kind']='nominal'
+            write_csv(target/'nominal.csv',rows)
+            write_json(target.parent/'completion.json',dict(status='PARTIAL',completed=['condition'],expected=1))
+            rec=collect(self.catalog(root))
+            self.assertFalse(rec.c.issues)
+            self.assertTrue(any(r['method']=='dynamics_q' and r['kind']=='shifted' for r in rec.rows))
+            self.assertFalse(any(r['method']=='dynamics_q' and r['kind']=='nominal' for r in rec.rows))
+            self.assertTrue(any('held-out batch not complete' in r['reason'] for r in rec.c.excluded))
     def test_snapshot_tampering_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);train=fixture(root)
