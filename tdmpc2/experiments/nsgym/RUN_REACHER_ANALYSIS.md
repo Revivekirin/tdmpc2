@@ -112,3 +112,33 @@ cd /Users/jihyekim/Desktop/tdmpc2
 Tests: `python -m unittest discover -s experiments/nsgym/tests -p test_reacher_research.py`.
 These exercise duplicate/reference safeguards; original resumed snapshot reconstruction remains unverified
 until the raw markers and episode files are available. No test claims to validate missing raw evidence.
+
+## 4. Original-record audit and enriched v3 analysis
+
+The transferred original bundle is available locally. Keep v2 unchanged and write v3 separately.
+The current entrypoint adds `--raw-source` to validate original markers and all episode seed grids,
+compare exports with original CSVs, reconstruct resumed control once, enrich canonical tables, and
+stream Joint/TTT logs. Binary checkpoints and NPZ files remain omitted, so byte-level hash verification
+is explicitly incomplete. No simulation, training or inference is performed.
+
+```bash
+cd /Users/jihyekim/Desktop/tdmpc2
+MPLCONFIGDIR=/tmp/mpl-reacher-analysis \
+/Users/jihyekim/miniconda3/envs/basilisk-rl/bin/python \
+  tdmpc2/experiments/nsgym/scripts/analyze_reacher_research.py \
+  --source results/nsgym/preview-v1/analysis-comparison-home-01 \
+  --raw-source results/nsgym/reacher-analysis-inputs-20261113-135148 \
+  --output results/nsgym/reacher-analysis-v3 \
+  --halfcheetah results/nsgym/mechanism-analysis-750k-v1
+```
+
+On server4, use `python experiments/nsgym/scripts/analyze_reacher_research.py`, set `--source` to
+`results/nsgym/reacher/preview-v1/analysis-comparison-home-01` and `--raw-source` to
+`results/nsgym/reacher/preview-v1`; other paths are relative to the project root.
+The original-record mode writes supplementary audit reports even when the export narrative is disabled.
+It uses the complete raw grid for auditing even when a family/severity filter limits the main comparison.
+
+New original evidence: selected checkpoint validation distributions, all Joint reward components,
+72 streamed Joint training logs, measured update schedules, fixed-component recorded hashes and
+160 resumed duplicate comparisons. `provenance/raw_audit.json` is the authoritative audit result.
+`PARTIAL_EVIDENCE` in overall completion now refers to missing model/NPZ binary verification, not missing CSVs.

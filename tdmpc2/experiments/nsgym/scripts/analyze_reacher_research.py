@@ -337,6 +337,313 @@ def draw(out,summaries,streams,physical,canonical,rewards,coupling,cross,nominal
         fig.savefig(out/'10_cross_task_normalized.png',dpi=180);plt.close(fig)
 
 
+def validate_resume(original_marker,resumed_marker,original_rows,resumed_rows):
+    if original_marker['snapshot_sha256']!=resumed_marker['snapshot_sha256'] or original_rows!=resumed_rows:
+        raise ValueError('Conflicting resumed snapshot or episode rows')
+    return True
+
+
+def snapshot_key(record):
+    i=record['identity']
+    return (i['family'],float(i['severity']),i['method'],int(i['adaptation_seed']),int(record.get('budget',10000)))
+
+
+def audit_raw(raw,src,config,canonical,predictions,matched,rewards,out):
+    """Cross-check original saved records; never load model or trajectory binaries."""
+    selected=src.json(raw/'nominal-home-01/selected_reacher_checkpoint.json')
+    archive=raw.with_name(raw.name+'.tar.gz')
+    if archive.exists():src.track(archive)
+    sha=selected['model_sha256'];inventory=[];markers={};resume=[];adapt={};joint_runs={}
+    stages=['nominal-home-01','inventory-home-01','probe-home-01','frozen-home-01','adapt-home-01',
+            'prediction-home-01','control-home-01','control-home-02-resumed',
+            'full-joint-home-01/runs-fixed','full-joint-home-01/evaluation-full-01']
+    for name in stages:
+        p=raw/name;marker=p/'completion.json'
+        d=src.json(marker) if marker.exists() else {}
+        if name!='control-home-01' and d.get('status')!='PASS':raise ValueError(f'Incomplete required stage: {name}')
+        if (p/'manifest.json').exists():src.json(p/'manifest.json')
+        children=sorted(p.glob('*/completion.json'))
+        inventory.append(dict(stage=name,status=d.get('status','INCOMPLETE'),completed_children=len(children),path=str(p.resolve())))
+        for child in children:
+            c=src.json(child)
+            if c.get('status')!='PASS':raise ValueError(f'Incomplete child {child}')
+            if 'identity' in c:markers[(name,snapshot_key(c))]=(child.parent,c)
+    expected={(f,float(k),m,a,b) for f in config['families'] for k in config['severities']
+              for m in config['methods'] for a in config['adaptation_seeds'] for b in config['snapshot_budgets']}
+    for name in ('prediction-home-01','control-home-02-resumed'):
+        actual={key for stage,key in markers if stage==name}
+        if actual!=expected:raise ValueError(f'Snapshot grid mismatch: {name}')
+    for p in sorted((raw/'adapt-home-01').glob('*/manifest.json')):
+        m=src.json(p);c=src.json(p.with_name('completion.json'));i=m['identity']
+        if m['selection']['model_sha256']!=sha or m['config']!=config or m['synthetic']:raise ValueError('Adaptation provenance mismatch')
+        k=(i['family'],float(i['severity']),i['method'],int(i['adaptation_seed']))
+        if k in adapt:raise ValueError('Duplicate adaptation identity')
+        adapt[k]=(m,c)
+    if len(adapt)!=144:raise ValueError('Adaptation grid incomplete')
+    fixed_hashes={c['fixed_hash'] for m,c in adapt.values()}
+    auxiliary_hashes={c['auxiliary_hash'] for m,c in adapt.values()}
+    if len(fixed_hashes)!=1 or len(auxiliary_hashes)!=1:raise ValueError('Frozen-component hash mismatch')
+    for p in sorted((raw/'full-joint-home-01/runs-fixed').glob('*/manifest.json')):
+        m=src.json(p);c=src.json(p.with_name('completion.json'));i=m['identity']
+        if m['checkpoint_sha256']!=sha:raise ValueError('Joint nominal origin mismatch')
+        k=(i['family'],float(i['severity']),'full_joint_rl',int(i['adaptation_seed']))
+        if k in joint_runs:raise ValueError('Duplicate Joint identity')
+        joint_runs[k]=(p.parent,m,c)
+    if len(joint_runs)!=72:raise ValueError('Joint grid incomplete')
+    for (stage,k),(p,c) in markers.items():
+        if stage=='control-home-01':
+            other,oc=markers[('control-home-02-resumed',k)]
+            same_rows=validate_resume(c,oc,src.csv(p/'control.csv'),src.csv(other/'control.csv'))
+            resume.append(dict(snapshot=str(k),snapshot_sha256=c['snapshot_sha256'],identical_episode_rows=same_rows,counted_once=True))
+        elif stage=='prediction-home-01':
+            if c['snapshot_sha256']!=markers[('control-home-02-resumed',k)][1]['snapshot_sha256']:raise ValueError('Prediction/control snapshot mismatch')
+        elif stage=='full-joint-home-01/evaluation-full-01':
+            if c['snapshot_sha256']!=joint_runs[k[:4]][2]['snapshot_sha256']:raise ValueError('Joint snapshot mismatch')
+    frozen_rows=src.csv(raw/'frozen-home-01/reacher_frozen_severity.csv')
+    frozen=unique(frozen_rows,lambda x:(x['family'],float(x['severity']),int(x['seed'])))
+    if len(frozen)!=480:raise ValueError('Frozen condition grid incomplete')
+    control={};pred={};snapshots=[]
+    for stage,filename in [('control-home-02-resumed','control.csv'),('prediction-home-01','predict.csv'),
+                           ('full-joint-home-01/evaluation-full-01','control.csv'),('full-joint-home-01/evaluation-full-01','predict.csv')]:
+        for (st,k),(p,c) in sorted(markers.items()):
+            if st!=stage:continue
+            rr=src.csv(p/filename)
+            want={(s,kind) for s in config['evaluation_seeds'] for kind in (['shifted','nominal'] if filename=='control.csv' else ['shifted'])}
+            got={(int(x['seed']),x.get('kind','shifted')) for x in rr}
+            if got!=want or len(rr)!=len(want):raise ValueError(f'Episode seed grid mismatch {p}/{filename}')
+            snapshots.append(dict(stage=stage,table=filename,**c['identity'],budget=k[4],snapshot_sha256=c['snapshot_sha256'],episodes=len(rr)))
+            for x in rr:
+                if snapshot_key(dict(identity=x,budget=x['budget']))!=k:raise ValueError('Episode identity differs from snapshot')
+                key=(*k,int(x['seed']),x.get('kind','shifted'))
+                dest=control if filename=='control.csv' else pred
+                if key in dest:raise ValueError('Duplicate raw episode')
+                x=dict(x,snapshot_sha256=c['snapshot_sha256'])
+                dest[key]=x
+                if filename=='predict.csv':
+                    f=frozen[(k[0],k[1],int(x['seed']))]
+                    if x['source_sha256']!=f['data_sha256']:raise ValueError('Held-out source bank mismatch')
+                elif abs(float(x['reward_dist'])+float(x['reward_ctrl'])-float(x['episode_return']))>1e-8:
+                    raise ValueError('Raw reward decomposition mismatch')
+    for x in canonical:
+        method={'Dynamics-only':'decision','Joint RL':'full_joint_rl','Frozen':'frozen'}[x['method']]
+        a=x['adaptation_seed'] or config['adaptation_seeds'][0]
+        key=(x['family'],x['severity'],method,a,x['budget'],x['evaluation_seed'],x['kind'])
+        r=control[key]
+        if not np.isclose(x['episode_return'],float(r['episode_return']),rtol=0,atol=1e-10):raise ValueError('Export/raw return conflict')
+        for m in METRICS:
+            v=num(r.get(m))
+            if m!='adaptation_wall_seconds' and x.get(m) is not None and v is not None and not np.isclose(x[m],v,rtol=1e-9,atol=1e-10):raise ValueError(f'Export/raw metric conflict: {m}')
+            if v is not None:x[m]=v
+        x.update(snapshot_sha256=r['snapshot_sha256'],completion_status='PASS_original_record',evidence='original_control_csv',terminated=r['terminated'],truncated=r['truncated'])
+    for x in predictions:
+        method='decision' if x['method']=='Dynamics-only' else 'frozen'
+        key=(x['family'],x['severity'],method,x['adaptation_seed'] or config['adaptation_seeds'][0],x['budget'],x['evaluation_seed'],'shifted')
+        r=pred[key]
+        if not np.isclose(x['latent_mse'],float(r['latent_mse']),rtol=1e-8,atol=1e-14):raise ValueError('Export/raw prediction conflict')
+        x.update(snapshot_sha256=r['snapshot_sha256'],source_bank_sha256=r['source_sha256'],encoder_contract='fixed_and_auxiliary_hashes_identical_in_original_completion_records',
+                 **{m:int(r[m]) for m in ('samples','low_action_n','mid_action_n','high_action_n') if m in r})
+    for key,r in pred.items():
+        if key[2]!='full_joint_rl':continue
+        predictions.append(dict(task='Reacher',family=key[0],parameter=r['parameter'],severity=key[1],method='Joint RL',adaptation_seed=key[3],budget=key[4],evaluation_seed=key[5],
+            latent_mse=float(r['latent_mse']),snapshot_sha256=r['snapshot_sha256'],source_bank_sha256=r['source_sha256'],samples=int(r['samples']),evaluation='fixed_Frozen_bank',encoder_contract='Joint_own_encoder_NOT_comparable_to_Frozen_encoder'))
+    for x in rewards:
+        key=(x['family'],x['severity'],'full_joint_rl',x['adaptation_seed'],x['budget'],x['evaluation_seed'],x['kind'])
+        r=control[key]
+        for field in ('reward_dist','reward_ctrl'):x['joint_'+field]=float(r[field]);x['joint_delta_'+field]=float(r[field])-x['frozen_'+field]
+    events=[];online=[];budgets=[]
+    for key,(p,m,c) in sorted(joint_runs.items()):
+        updates=[];ep_return=0.;last=0;total=0
+        with src.track(p/'training.jsonl').open() as handle:
+            for line in handle:
+                r=json.loads(line);total+=1
+                if r['transition']!=total:raise ValueError('Joint transition log gap')
+                ep_return+=r['reward']
+                if r['terminated'] or r['truncated']:
+                    online.append(dict(**m['identity'],transition=total,episode=r['episode'],online_return=ep_return));ep_return=0.
+                if r['updates']!=last:
+                    if r['updates']!=last+1:raise ValueError('Joint update counter gap')
+                    metrics={k:num(v) for k,v in r['metrics'].items()}
+                    updates.append(total);events.append(dict(**m['identity'],transition=total,updates=r['updates'],replay_episodes=r['replay_episodes'],**metrics))
+                    last=r['updates']
+        if updates!=list(range(75,10001,25)) or total!=c['transitions'] or last!=c['updates']:raise ValueError('Joint log/marker schedule mismatch')
+        budgets.append(dict(**m['identity'],transitions=total,first_update=updates[0],last_update=updates[-1],updates=last,
+            optimizer_step_calls=c['optimizer_step_calls'],completed_episodes=c['completed_episodes'],replay_rows=c['replay_rows'],snapshot_sha256=c['snapshot_sha256']))
+    ttt_budgets=[]
+    for key,(m,c) in sorted(adapt.items()):
+        p=raw/'adapt-home-01'/f'{key[0]}-k{key[1]:g}-{key[2]}-seed{key[3]}'
+        first=None;last_updates=0;last_trans=0
+        with src.track(p/'online_steps.csv').open() as h:
+            for r in csv.DictReader(h):
+                last_trans=int(r['transitions']);u=int(r['gradient_updates'])
+                if u>last_updates and first is None:first=last_trans
+                last_updates=u
+        if last_trans!=c['metrics']['adaptation_transitions'] or last_updates!=c['metrics']['gradient_update_steps']:raise ValueError('TTT log/marker mismatch')
+        ttt_budgets.append(dict(**m['identity'],transitions=last_trans,updates=last_updates,first_update=first,
+            fixed_hash=c['fixed_hash'],auxiliary_hash=c['auxiliary_hash'],model_hash=c['model_hash']))
+    validation=src.csv(raw/'nominal-home-01/reacher_checkpoint_validation.csv')
+    selected_rows=[r for r in validation if int(r['training_step'])==selected['training_step']]
+    if sorted(int(r['seed']) for r in selected_rows)!=sorted(config['validation_seeds']):raise ValueError('Nominal validation seed mismatch')
+    if not np.isclose(np.mean([float(r['episode_return']) for r in selected_rows]),selected['nominal_performance']['mean']):raise ValueError('Nominal validation score mismatch')
+    probe=src.csv(raw/'probe-home-01/reacher_physical_response.csv')
+    table(out/'tables/raw_stage_inventory.csv',inventory);table(out/'tables/resumed_duplicate_audit.csv',resume)
+    table(out/'tables/snapshot_identity_audit.csv',snapshots);table(out/'tables/joint_update_events.csv',events)
+    table(out/'tables/joint_online_episodes.csv',online);table(out/'tables/joint_budget_measured.csv',budgets)
+    table(out/'tables/dynamics_budget_measured.csv',ttt_budgets);table(out/'tables/nominal_validation_episodes.csv',validation)
+    result=dict(status='PASS_SAVED_RECORD_AUDIT',stages=inventory,resumed_identical_children=len(resume),
+        adaptation_streams=len(adapt),joint_streams=len(joint_runs),control_snapshots=864,prediction_snapshots=864,
+        joint_update_events=len(events),same_nominal_sha256=sha,fixed_component_hashes_identical=True,
+        checkpoint_and_snapshot_bytes_verified=False,npz_bank_bytes_verified=False,
+        limitations=['No model .pt or trajectory .npz in transfer; hashes cross-checked between saved records only',
+                     'Original per-step CSVs retained; trajectory replay and fresh environment checks not performed'])
+    js(out/'provenance/raw_audit.json',result)
+    return dict(result=result,validation=selected_rows,events=events,online=online,probe=probe,control=control)
+
+
+def raw_figures_and_reports(out,raw_data,canonical,rewards,src,raw,plotting=True):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    tab=out/'tables';rep=out/'reports';figdir=out/'figures'
+    # Remove stale claims only in this newly generated report package, retaining the v2 package.
+    for p in rep.glob('*.md'):
+        text=p.read_text()
+        substitutions={
+            'original per-stream hashes are unavailable here':'original per-stream hashes were cross-checked; model bytes were not transferred',
+            'original snapshot/stage audits and Joint learning diagnostics are absent':'saved-record audits and Joint learning diagnostics are now included in RAW_EVIDENCE_AUDIT.md and JOINT_LEARNING_STABILITY.md',
+            'Joint components are NOT AVAILABLE':'Joint components are available in JOINT_REWARD_DECOMPOSITION.md',
+            'Joint reward components are unavailable':'Joint reward components are available in JOINT_REWARD_DECOMPOSITION.md',
+            'Joint reward-distance/control-cost components are absent':'Joint reward-distance/control-cost components are now measured in JOINT_REWARD_DECOMPOSITION.md',
+            'original_state_hash_not_available':'original_completion_hashes_checked',
+        }
+        for a,b in substitutions.items():text=text.replace(a,b)
+        p.write_text('> Original-record supplement: see RAW_EVIDENCE_AUDIT.md. Any export-only availability statements below describe the earlier summary source; the supplement supersedes them.\n\n'+text)
+    def md(rows,cols):return '\n'.join(['| '+' | '.join(cols)+' |','|'+'|'.join(['---']*len(cols))+'|']+['| '+' | '.join(str(r.get(c,'')) for c in cols)+' |' for r in rows])
+    r=raw_data['result']
+    (rep/'RAW_EVIDENCE_AUDIT.md').write_text('# Original saved-record audit\n\n'+json.dumps(r,indent=2)+'\n\n'
+        'All 160 completed children of interrupted control-home-01 match resumed snapshot hashes and control CSV rows exactly. They are counted once. '
+        'The resumed stage contains the complete 864-snapshot grid. Prediction/control snapshot hashes agree. All 144 adaptation streams and 72 Joint streams name the selected 670k nominal SHA. '
+        'Joint evaluation snapshot hashes match training completion markers. Prediction data-bank hashes agree with the Frozen manifest. '
+        'Fixed and auxiliary hashes match across all Dynamics-only/Frozen adaptation completions. These establish record consistency, not independent model-byte verification.\n\n'
+        'Canonical tables now contain original snapshot identities, Joint episode/reward fields and Joint prediction rows. '
+        'Every original episode was checked for complete evaluation seeds and duplicate identity. Existing exported control and prediction metrics agree with originals.\n')
+    vr=raw_data['validation'];ns=[dict(metric=m,**stats([float(x[m]) for x in vr])) for m in ['episode_return','distance_mean','distance_final']]
+    (rep/'REACHER_NOMINAL_QUALITY.md').write_text('# Nominal checkpoint quality — original validation\n\n'
+        'Selected checkpoint: 670k. SHA256 in original selection: '+r['same_nominal_sha256']+'. Model bytes not transferred. '
+        'Validation seeds 51000001–51000020; held-out experiment seeds 54000001–54000020 are separate. '\
+        'Reacher-v5, observation dim 10, action dim 2, horizon 50; MPPI horizon 3, iterations 6, samples 512, elites 64, policy trajectories 24.\n\n'+md(ns,['metric','n','mean','median','std','ci_low','ci_high'])+
+        '\n\nObserved: competent target approach. No binary success threshold or independent multi-training-seed convergence claim. '
+        'Reward components are negative target distance and negative squared action norm; raw recorded components sum to return.\n')
+    groups=defaultdict(list)
+    for x in rewards:groups[(x['family'],x['severity'],x['kind'],x['adaptation_seed'])].append(x)
+    reward_streams=[dict(family=f,severity=k,kind=kind,adaptation_seed=a,**{m:float(np.mean([x[m] for x in rr])) for m in ['joint_delta_reward_dist','joint_delta_reward_ctrl','delta_reward_dist','delta_reward_ctrl']}) for (f,k,kind,a),rr in sorted(groups.items())]
+    table(tab/'reward_components_per_stream.csv',reward_streams)
+    summaries=[]
+    for f in FAMILIES:
+        for k in GRID:
+            for m in ['joint_delta_reward_dist','joint_delta_reward_ctrl']:
+                rr=[x[m] for x in reward_streams if x['family']==f and x['severity']==k and x['kind']=='shifted']
+                if rr:summaries.append(dict(family=f,severity=k,metric=m,**stats(rr)))
+    table(tab/'joint_reward_summary.csv',summaries)
+    (rep/'JOINT_REWARD_DECOMPOSITION.md').write_text('# Joint reward decomposition\n\n'+md(summaries,['family','severity','metric','mean','median','ci_low','ci_high'])+
+        '\n\nJoint minus Frozen, paired on held-out seed. Lower distance is represented by higher distance reward; lower action penalty is higher control reward. '
+        'Across the full grid, Joint distance reward improves in 4/24 labels and control reward improves in 20/24. Intervals bootstrap three adaptation-stream means conditional on the evaluation bank. These are descriptive intervals. Nominal retention is separate in reward_components_per_stream.csv.\n')
+    events=raw_data['events'];eg=defaultdict(list)
+    for e in events:eg[(e['family'],e['severity'],e['adaptation_seed'])].append(e)
+    statsrows=[]
+    for key,rr in sorted(eg.items()):
+        for metric in ('consistency_loss','reward_loss','value_loss','total_loss','grad_norm','pi_loss','pi_grad_norm'):
+            vals=[x[metric] for x in rr]
+            statsrows.append(dict(family=key[0],severity=key[1],adaptation_seed=key[2],metric=metric,
+                events=len(vals),mean=float(np.mean(vals)),median=float(np.median(vals)),max=max(vals),first=vals[0],last=vals[-1]))
+    table(tab/'joint_learning_per_stream.csv',statsrows)
+    (rep/'JOINT_LEARNING_STABILITY.md').write_text('# Joint learning stability\n\n'
+        'All 72 original logs were streamed (720,000 transitions). Every stream has 398 update events: first at 75, then every 25 transitions through 10,000. '
+        'Completion markers report 796 optimizer step calls (two optimizers per update), 200 episodes and 10,200 replay rows. '
+        'Optimizer steps increase from 669,999 to 670,397. No HalfCheetah update schedule is substituted. '
+        'All recorded update metrics are finite. Finite losses do not prove optimization convergence or stable held-out performance.\n\n'
+        'Figure 09 shows separate family/severity stream-mean curves. Shading is min–max over the three adaptation seeds, not independent-time-step uncertainty. '
+        'Online episode returns come directly from sums of saved transition rewards; they are not held-out evaluation. '
+        'Per-stream first/last/max/median loss and gradient values are in joint_learning_per_stream.csv.\n')
+    (rep/'MISSING_EVIDENCE.md').write_text('# Remaining evidence limits\n\n'
+        '- Nominal model.pt and optimizers.pt: byte-level verification of recorded checkpoint hashes.\n'
+        '- Adaptation snapshot .pt files: independently recompute state/encoder hashes rather than trust recorded markers.\n'
+        '- Frozen .npz bank: independently verify bytes against data_sha256/source_sha256. Prediction bank identifiers match between CSVs.\n'
+        '- Multi-step latent errors and common-encoder Joint prediction accuracy: not recorded; not invented.\n'
+        '- Independent training-seed nominal convergence and causal Q/actor attribution: not established by these experiments.\n'
+        'Original validation, probe vectors, per-episode rewards, snapshot identities, Joint logs and trajectory CSVs are now available locally. '
+        'No environment was rerun. Large per-step CSVs are kept in the extracted source and are not copied into the analysis ZIP.\n')
+    (rep/'EXPERIMENT_INVENTORY.md').write_text('# Original experiment inventory\n\n'+md(r['stages'],['stage','status','completed_children','path'])+
+        '\n\nRequired stages pass. Original interrupted control has no top-level completion; its 160 completed children exactly match resumed rows/hash and are counted once. '
+        'All 864 resumed and 864 prediction snapshots have the full seed grid. Joint has 72 complete adaptation and evaluation streams. '
+        'See snapshot_identity_audit.csv for hashes, budgets and counts; original source hashes are in provenance/input_manifest.json.\n')
+    (rep/'PHYSICAL_SEVERITY_ANALYSIS.md').write_text('# Physical severity — original records\n\n'
+        f"Original probe CSV contains {len(raw_data['probe'])} measured transitions with initial states, actions, nominal/shifted observations and physical vectors. "
+        'The saved physical summary uses five calibration seeds; its provenance is now available. No simulator replay was performed. '
+        'Four families × six severities retained; k=1 labels are aliases. Damping and mass units remain separate. '
+        'Velocity difference [rad/s], fingertip displacement [m] and finite-difference acceleration [rad/s²] are measured, not inferred from severity k. '
+        'Mass changes keep inertia fixed under the saved protocol; this is not uniform-density scaling.\n')
+    (rep/'DYNAMICS_ONLY_ADAPTATION.md').write_text('# Dynamics-only original evidence\n\n'
+        'All 144 adaptation completions and per-stream original logs were checked. Fixed-component and auxiliary hashes are identical across the streams. '
+        'Prediction/control completion records identify the same snapshot at each budget; fixed-bank source hashes match the Frozen CSV. '
+        'These are saved-record invariance checks; model tensors are not independently rehashed. '
+        'Final prediction reduction is 85.9–96.3% across the 24 labels; all condition mean return changes are negative. '
+        'Final target distance improves in 12/24 condition labels. See prediction_control.csv for individual condition classifications and uncertainty. '
+        'Budget, actual first update and final update counts are in dynamics_budget_measured.csv. '
+        'Fixed-data prediction remains distinct from on-policy latent_mse.\n')
+    (rep/'JOINT_RL_COMPARISON.md').write_text('# Joint RL — original held-out results\n\n'
+        '72 original adaptation streams and 72 held-out evaluation children pass. Each has 40 control episodes (20 shifted +20 nominal) and 20 fixed-bank prediction episodes. '
+        'Training/evaluation snapshot hashes and selected nominal hash agree in the original markers. '
+        'Final budget 10,000 transitions and 398 update events are verified from all 72 logs. '
+        'Mean shifted return change is positive in 6/24 conditions, ranging −0.00868687 to +0.0138014. '
+        'Nominal retention episodes are available and kept separate from shifted evaluation and online training. '
+        'Reward decomposition is now measured in JOINT_REWARD_DECOMPOSITION.md. Loss/gradient/online-return diagnostics are in JOINT_LEARNING_STABILITY.md. '
+        'Joint own-encoder latent error is represented separately; changing the encoder prevents direct physical-accuracy comparison with Frozen/TTT latent MSE.\n')
+    conclusion=rep/'RESEARCH_CONCLUSIONS.md'
+    text=conclusion.read_text().replace('online optimization stability is NOT ESTABLISHED','all recorded Joint losses are finite and update schedules match; optimization convergence is not established')
+    text=text.replace('Evidence status: PARTIAL_EVIDENCE.','Evidence status: saved-record audit PASS; byte-level verification of omitted model/NPZ files remains incomplete.')
+    conclusion.write_text(text)
+    if not plotting:return
+    fig,axes=plt.subplots(1,3,figsize=(13,4),layout='constrained')
+    for ax,m,label in zip(axes,['episode_return','distance_mean','distance_final'],['Return','Mean target distance [m]','Final target distance [m]']):
+        ax.hist([float(x[m]) for x in vr],bins=8);ax.set(xlabel=label,ylabel='Validation seeds')
+    fig.suptitle('Selected 670k nominal checkpoint — original validation bank, n=20')
+    fig.savefig(figdir/'01_nominal_validation.png',dpi=180);plt.close(fig)
+    metrics=['total_loss','consistency_loss','reward_loss','value_loss','pi_loss','grad_norm','pi_grad_norm']
+    fig,axes=plt.subplots(len(metrics)+1,4,figsize=(18,23),layout='constrained')
+    for col,(f,param) in enumerate(FAMILIES.items()):
+        for row,metric in enumerate(metrics+['online_return']):
+            ax=axes[row,col]
+            for k in GRID:
+                rows=[x for x in (events if metric!='online_return' else raw_data['online']) if x['family']==f and x['severity']==k]
+                by=defaultdict(list)
+                for x in rows:by[x['transition']].append(x[metric])
+                xx=sorted(by);yy=[np.mean(by[t]) for t in xx]
+                line,=ax.plot(xx,yy,label=f'k={k:g}',lw=.7)
+                ax.fill_between(xx,[min(by[t]) for t in xx],[max(by[t]) for t in xx],color=line.get_color(),alpha=.08)
+            ax.set(title=param if row==0 else '',xlabel='Adaptation transitions',ylabel=metric)
+            if metric not in ('online_return','pi_loss'):ax.set_yscale('symlog',linthresh=1e-8)
+            if row==0:ax.legend(fontsize=7,ncol=3)
+    fig.suptitle('Joint training diagnostics; mean and min–max of 3 adaptation streams, update every 25 transitions after 75')
+    fig.savefig(figdir/'09_joint_learning_stability.png',dpi=160);plt.close(fig)
+    fig,axes=plt.subplots(1,4,figsize=(17,4.5),layout='constrained')
+    for ax,(f,param) in zip(axes,FAMILIES.items()):
+        for metric,label in [('joint_delta_reward_dist','Distance reward'),('joint_delta_reward_ctrl','Control reward')]:
+            rr=[x for x in summaries if x['family']==f and x['metric']==metric];xx=[x['severity'] for x in rr]
+            line,=ax.plot(xx,[x['mean'] for x in rr],'o-',label=label)
+            ax.fill_between(xx,[x['ci_low'] for x in rr],[x['ci_high'] for x in rr],color=line.get_color(),alpha=.15)
+        ax.set(title=param,xlabel='Severity k',ylabel='Joint − Frozen reward component');ax.axhline(0,color='gray',lw=.5);ax.legend(fontsize=8)
+    fig.suptitle('Joint reward decomposition: paired seeds; descriptive CI over 3 adaptation streams')
+    fig.savefig(figdir/'08b_joint_reward_decomposition.png',dpi=180);plt.close(fig)
+    (out/'README.md').write_text('# Reacher analysis v3 — original saved records\n\n'
+        'Read reports/RAW_EVIDENCE_AUDIT.md, RESEARCH_CONCLUSIONS.md, JOINT_LEARNING_STABILITY.md and JOINT_REWARD_DECOMPOSITION.md. '
+        'This extends the earlier summary analysis with original validation, episode CSVs, completion hashes and streaming training logs. '
+        'All exported episode metrics agree with originals. Original source files and the previous v2 package remain unchanged. '
+        'Saved-record audit passes; binary model/NPZ verification remains unavailable.\n\n'
+        'No model loading, inference, optimizer updates or environment calls. Reproduction: analysis_code/RUN_REACHER_ANALYSIS.md; use --raw-source. '
+        'Uncertainty: 3 adaptation-stream means conditional on 20 held-out seeds. Frozen references and resumed control duplicates are not independent replications. '
+        'All grid labels retained; nominal family aliases are not independent physical settings.\n')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',type=Path,required=True);parser.add_argument('--output',type=Path,required=True)
@@ -346,6 +653,7 @@ def main():
     parser.add_argument('--method',choices=list(METHODS.values()),help='Filter canonical episode/prediction views only; paired comparisons retain all three methods')
     parser.add_argument('--dry-run',action='store_true');parser.add_argument('--plotting',action=argparse.BooleanOptionalAction,default=True)
     parser.add_argument('--summary',action=argparse.BooleanOptionalAction,default=True)
+    parser.add_argument('--raw-source',type=Path,help='Extracted original CSV/JSON/JSONL bundle; cross-check and enrich summary analysis')
     parser.add_argument('--nominal-record',type=Path);parser.add_argument('--halfcheetah',type=Path)
     parser.add_argument('--return-band-fraction',type=float,default=.001);parser.add_argument('--error-band-fraction',type=float,default=.001)
     args=parser.parse_args();src=Sources()
@@ -379,9 +687,12 @@ def main():
     tab=out/'tables';rep=out/'reports';pro=out/'provenance'
     table(tab/'experiment_inventory.csv',inventory)
     canonical,predictions,matched,rewards,excluded,manifest=load(args.source,root,src,config)
-    selection,selection_source=selection_record(args.source,args.nominal_record,src)
+    selection,selection_source=selection_record(args.raw_source or args.source,args.nominal_record,src)
     if selection and selection['model_sha256'] != manifest['checkpoint_sha256']: raise ValueError('Nominal selection hash differs from result export')
     js(pro/'selected_nominal_record.json',dict(record=selection,evidence=selection_source,checkpoint_bytes_verified=False))
+    raw_data=None
+    if args.raw_source:
+        raw_data=audit_raw(args.raw_source,src,config,canonical,predictions,matched,rewards,out)
     def keep(x):return (args.family is None or x['family']==args.family) and (args.severity is None or float(x['severity'])==args.severity)
     full_canonical=canonical
     canonical=[x for x in canonical if keep(x)];predictions=[x for x in predictions if keep(x)]
@@ -401,6 +712,8 @@ def main():
         ('trajectory diagnostics','Frozen/control/*/steps.csv','t, tip, target, qvel, qacc, force, ctrl'),
         ('encoder invariance','adaptation/*/completion.json and snapshot metadata','fixed_hash, auxiliary_hash, model_hash; nominal state comparison'),
     ]
+    if raw_data:
+        missing=[('binary integrity','nominal model.pt/optimizers.pt; adapted snapshots .pt; Frozen bank .npz','cross-record hashes agree; binary files not transferred'),('unmeasured prediction','common-encoder Joint and multi-step errors','not recorded; own-encoder error is not comparable physical accuracy')]
     exclusions=[dict(category=a,required_files=b,missing_columns_or_reason=c,status='NOT_AVAILABLE_IN_LOCAL_EXPORT') for a,b,c in missing]
     exclusions.extend(excluded);table(tab/'exclusions.csv',exclusions)
     coverage=[]
@@ -410,7 +723,7 @@ def main():
             rr=[x for x in matched if x['family']==family and x['severity']==k and x['kind']=='shifted']
             coverage.append(dict(family=family,severity=k,paired_episodes=len(rr),adaptation_seeds=len({x['adaptation_seed'] for x in rr}),
                 evaluation_seeds=len({x['evaluation_seed'] for x in rr}),status='COMPLETE_DERIVED_PAIRING' if len(rr)==60 else 'INCOMPLETE',
-                raw_provenance='NOT_AVAILABLE',nominal_alias=k==1))
+                raw_provenance='PASS_SAVED_RECORD_AUDIT' if raw_data else 'NOT_AVAILABLE',nominal_alias=k==1))
     table(tab/'coverage.csv',coverage)
     budgets=[]
     for method in ('Frozen','Dynamics-only','Joint RL'):
@@ -459,8 +772,10 @@ def main():
         write_reports(out,config,full_canonical,matched,summaries,streams,coupling,coverage,selection,selection_source,manifest,cross,missing,physical)
     else:
         (out/'README.md').write_text('Narrative summary disabled; see provenance and tables. Evidence is partial.\n')
+    if raw_data:
+        raw_figures_and_reports(out,raw_data,canonical,rewards,src,args.raw_source,args.plotting and args.stage in ('all','plots'))
     analysis_config=dict(task='Reacher',source=str(args.source.resolve()),summary_source=str(root.resolve()),
-        contract=config,stage=args.stage,filters=dict(family=args.family,severity=args.severity,method=args.method),
+        raw_source=str(args.raw_source.resolve()) if args.raw_source else None,contract=config,stage=args.stage,filters=dict(family=args.family,severity=args.severity,method=args.method),
         return_band_fraction=args.return_band_fraction,error_band_fraction=args.error_band_fraction,
         thresholds='analysis-defined sensitivity bands; NOT preregistered biological/practical equivalence',
         bootstrap='5000 fixed-seed bootstrap of adaptation-stream means, conditional on 20 evaluation seeds; n=3 descriptive',
@@ -477,7 +792,7 @@ def main():
     js(pro/'input_manifest.json',src.files)
     js(pro/'completion.json',dict(status='PARTIAL_EVIDENCE',analysis_execution='PASS',conditions=len(coverage),
         matched_shifted_episodes=sum(x['kind']=='shifted' for x in matched),canonical_episode_rows=len(canonical),
-        original_stage_audit='NOT_AVAILABLE',joint_training_diagnostics='NOT_AVAILABLE',
+        original_stage_audit='PASS_SAVED_RECORD_AUDIT' if raw_data else 'NOT_AVAILABLE',joint_training_diagnostics='MEASURED' if raw_data else 'NOT_AVAILABLE',
         optimizer_updates=0,environment_transitions=0,inference_calls=0))
     for path,record in src.files.items():
         if digest(path)!=record['sha256']:raise ValueError(f'Input changed during analysis: {path}')

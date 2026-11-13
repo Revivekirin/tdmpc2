@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from analyze_reacher_research import collapse, identity, num, unique
+from analyze_reacher_research import collapse, identity, num, unique, snapshot_key, validate_resume
 
 class ResearchTests(unittest.TestCase):
     def test_reused_reference_is_one_observation(self):
@@ -18,6 +18,17 @@ class ResearchTests(unittest.TestCase):
         row=dict(family='M0',severity=1.5,adaptation_seed=1,seed=2,kind='shifted')
         self.assertNotEqual(identity(row),identity(dict(row,seed=3)))
         self.assertNotEqual(identity(row),identity(dict(row,kind='nominal')))
+    def test_resume_requires_identical_snapshot_and_rows(self):
+        a={'snapshot_sha256':'abc'}
+        self.assertTrue(validate_resume(a,a,[{'return':1}],[{'return':1}]))
+        with self.assertRaises(ValueError):validate_resume(a,{'snapshot_sha256':'def'},[],[])
+        with self.assertRaises(ValueError):validate_resume(a,a,[{'return':1}],[{'return':2}])
+    def test_snapshot_budget_is_identity(self):
+        a=dict(identity=dict(family='D0',severity=1.5,method='decision',adaptation_seed=1),budget=500)
+        self.assertNotEqual(snapshot_key(a),snapshot_key(dict(a,budget=1000)))
+    def test_snapshot_method_is_identity(self):
+        a=dict(identity=dict(family='D0',severity=1.5,method='decision',adaptation_seed=1),budget=500)
+        self.assertNotEqual(snapshot_key(a),snapshot_key(dict(a,identity=dict(a['identity'],method='frozen'))))
     def test_missing_not_zero(self):
         self.assertIsNone(num(''))
         self.assertEqual(num('0'),0)

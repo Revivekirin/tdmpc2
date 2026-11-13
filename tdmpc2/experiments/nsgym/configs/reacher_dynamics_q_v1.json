@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "task": "reacher",
+  "collection_eval_mode": true,
+  "baseline_config_fingerprint": "5f282c61bfe3765b3d01611ce4954d5bdc1c65d7371596512db0f2134de1e4dd",
+  "algorithm": "unchanged common.dynamics_q.DynamicsQAdapter",
+  "optimizer_source": "dynamics_q.json; predictor settings matched to reacher_pipeline_v1.json",
+  "target_tau_source": "selected nominal config; require 0.01"
+}
