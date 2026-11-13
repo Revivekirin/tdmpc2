@@ -35,10 +35,10 @@ class MigrationTests(unittest.TestCase):
             with self.assertRaises(ValueError):bootstrap(values)
     def test_required_operations_and_registration(self):
         from .__main__ import OPERATIONS
-        self.assertEqual(len(OPERATIONS),11)
+        self.assertIn('discover',OPERATIONS)
         from .sources import SOURCES
         self.assertEqual(set(SOURCES),{'halfcheetah','reacher'})
-        self.assertTrue(all(x['adapter'] in SOURCES for x in SOURCES.values()))
+        self.assertTrue(all('environment_aliases' in x and 'parameters' in x for x in SOURCES.values()))
     def test_diagnostic_trace_from_saved_updates(self):
         base=WORKSPACE/'results/nsgym/dynamics-q-750k-v1/followup-analysis-v1'
         trace=list(rows(base/'all_update_diagnostics.csv'))

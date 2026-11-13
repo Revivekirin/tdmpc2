@@ -1,116 +1,121 @@
-"""Shared paired statistics; the adaptation stream is the uncertainty unit."""
-
-from __future__ import annotations
-
+"""Seed-level aggregation and paired comparisons, isolated by checkpoint and schedule."""
 from collections import defaultdict
-from .statistics import bootstrap
-from statistics import mean, median, stdev
+from statistics import mean
+from .statistics import summary
 
-from .schema import numeric
-
-
-def paired_improvements(evaluations: list[dict], methods: set[str], kind="shifted"):
-    grouped = defaultdict(dict)
-    for row in evaluations:
-        if row["metric"] != "episode_return" or row["kind"] != kind:
-            continue
-        key = (row["task"], row["shift_family"], row["shift_parameter"],
-               row["severity_multiplier"], row["adaptation_seed"], row["evaluation_seed"])
-        method = row["method"]
-        if method in grouped[key] and grouped[key][method]["value"] != row["value"]:
-            raise ValueError(f"Conflicting evaluation records: {key}, {method}")
-        grouped[key][method] = row
-    per_stream = defaultdict(list)
-    for key, observed in grouped.items():
-        baseline = observed.get("frozen")
-        if baseline is None: continue
-        frozen = numeric(baseline["value"])
-        if frozen is None: continue
-        for method in sorted(methods - {"frozen"}):
-            current = observed.get(method)
-            if current is None: continue
-            adapted = numeric(current["value"])
-            if adapted is None: continue
-            per_stream[key[:5] + (method,)].append(adapted - frozen)
-    streams = []
-    for key, values in sorted(per_stream.items()):
-        streams.append(dict(task=key[0], shift_family=key[1], shift_parameter=key[2],
-                            severity_multiplier=key[3], adaptation_seed=key[4], method=key[5],
-                            evaluation_seeds=len(values), mean_return_improvement=mean(values)))
-    by_condition = defaultdict(list)
-    for row in streams:
-        key = (row["task"], row["shift_family"], row["shift_parameter"], row["severity_multiplier"], row["method"])
-        by_condition[key].append(row["mean_return_improvement"])
-    comparisons = []
-    for key, values in sorted(by_condition.items()):
-        from .sources import SOURCES
-        low, high = bootstrap(values, SOURCES[key[0]].get("adapter", key[0]))
-        comparisons.append(dict(task=key[0], shift_family=key[1], shift_parameter=key[2],
-                                severity_multiplier=key[3], method=key[4], baseline="frozen",
-                                n_adaptation_streams=len(values), evaluation_seeds_per_stream=min(
-                                    s["evaluation_seeds"] for s in streams if
-                                    (s["task"], s["shift_family"], s["shift_parameter"],
-                                     s["severity_multiplier"], s["method"]) == key),
-                                mean=mean(values), median=median(values), std=stdev(values) if len(values) > 1 else "",
-                                ci_low=low,
-                                ci_high=high,
-                                improved_streams=sum(v > 0 for v in values),
-                                nominal_duplicate=str(float(key[3]) == 1.0),
-                                uncertainty_unit="adaptation_seed"))
-    return streams, comparisons
+CONDITION=('task','cohort_id','shift_family','shift_parameter','severity_multiplier','schedule','kind','metric')
 
 
-def prediction_improvements(predictions: list[dict]):
-    grouped = defaultdict(dict)
-    for row in predictions:
-        key = (row["task"], row["shift_family"], row["shift_parameter"],
-               row["severity_multiplier"], row["adaptation_seed"], row["evaluation_seed"])
-        grouped[key][row["method"]] = numeric(row["value"])
-    result = []
-    for key, values in sorted(grouped.items()):
-        frozen = values.get("frozen")
-        if frozen is None: continue
-        for method, current in values.items():
-            if method == "frozen" or current is None: continue
-            result.append(dict(task=key[0], shift_family=key[1], shift_parameter=key[2],
-                               severity_multiplier=key[3], adaptation_seed=key[4],
-                               evaluation_seed=key[5], method=method,
-                               frozen_mse=frozen, adapted_mse=current,
-                               mse_improvement=frozen-current))
+def summarize_records(records):
+    grouped=defaultdict(list)
+    for r in records:
+        key=tuple(r[k] for k in CONDITION)+(r['method'],r['adaptation_budget'])
+        grouped[key].append(r)
+    result=[]
+    for key,rr in sorted(grouped.items()):
+        streams=defaultdict(list)
+        for r in rr:
+            unit=r['adaptation_seed'] if r['method']!='frozen' and r['adaptation_seed'] else r['evaluation_seed']
+            streams[unit].append(r['value'])
+        values=[mean(v) for _,v in sorted(streams.items())]
+        result.append(dict(zip(CONDITION+('method','adaptation_budget'),key),**summary(values,'q' if rr[0]['kind'].startswith('q_') else key[0]),
+            sampling_unit='adaptation_seed' if any(r['adaptation_seed'] for r in rr) else 'evaluation_or_calibration_seed',
+            evaluation_records=len(rr),checkpoint_id=rr[0].get('checkpoint_id',''),evidence='DERIVED_ONLY' if any(r['evidence']=='DERIVED_ONLY' for r in rr) else 'RAW_REPRODUCED',
+            source_records=';'.join(sorted(set(r['source_record_id'] for r in rr))),
+            nominal_alias=str(float(rr[0]['severity_multiplier'])==1),
+            nominal_parameter=rr[0]['nominal_parameter'],applied_parameter_value=rr[0]['applied_parameter_value']))
     return result
 
 
-def prediction_control_pairs(streams: list[dict], prediction_pairs: list[dict]):
-    grouped = defaultdict(list)
-    for row in prediction_pairs:
-        key = (row["task"], row["shift_family"], row["shift_parameter"],
-               row["severity_multiplier"], row["adaptation_seed"], row["method"])
-        grouped[key].append(row["mse_improvement"])
-    result = []
-    for row in streams:
-        key = (row["task"], row["shift_family"], row["shift_parameter"],
-               row["severity_multiplier"], row["adaptation_seed"], row["method"])
-        errors = grouped.get(key, [])
-        if errors:
-            result.append({**row, "mse_improvement": mean(errors), "prediction_seeds": len(errors),
-                           "quadrant": ("prediction_improved" if mean(errors) > 0 else "prediction_worsened") + "/" +
-                           ("control_improved" if row["mean_return_improvement"] > 0 else "control_worsened")})
+def paired_improvements(evaluations,methods=None,kind='shifted'):
+    # Frozen references are shared by evaluation seed, never replicated as independent training runs.
+    baseline={}; adapted=defaultdict(list)
+    for r in evaluations:
+        if r['metric']!='episode_return' or r['kind']!=kind:continue
+        key=tuple(r[k] for k in ('task','cohort_id','shift_family','shift_parameter','severity_multiplier','schedule','evaluation_seed'))
+        if r['method']=='frozen':baseline[key]=r
+        elif methods is None or r['method'] in methods:adapted[(r['method'],r['adaptation_budget'],*key[:-1],r['adaptation_seed'])].append(r)
+    streams=[]
+    for key,rr in sorted(adapted.items()):
+        deltas=[];sources=[];seeds=[]
+        for r in rr:
+            bk=tuple(r[k] for k in ('task','cohort_id','shift_family','shift_parameter','severity_multiplier','schedule','evaluation_seed'))
+            if bk not in baseline:continue
+            deltas.append(r['value']-baseline[bk]['value']);sources += [r['source_record_id'],baseline[bk]['source_record_id']];seeds.append(r['evaluation_seed'])
+        # Partial pairing is excluded, not quietly reduced to the intersection.
+        if not deltas or len(deltas)!=len(rr):continue
+        r=rr[0]
+        streams.append({k:r[k] for k in ('task','cohort_id','shift_family','shift_parameter','severity_multiplier','schedule','method','adaptation_budget','adaptation_seed')} | dict(kind=kind,evaluation_seeds=len(deltas),seed_set=','.join(sorted(seeds)),mean_return_improvement=mean(deltas),source_records=';'.join(sorted(set(sources)))))
+    groups=defaultdict(list)
+    for r in streams:groups[tuple(r[k] for k in ('task','cohort_id','shift_family','shift_parameter','severity_multiplier','schedule','method','adaptation_budget'))].append(r)
+    comparisons=[]
+    for key,rr in sorted(groups.items()):
+        if len({r['seed_set'] for r in rr})!=1:continue
+        values=[r['mean_return_improvement'] for r in rr]
+        comparisons.append(dict(zip(('task','cohort_id','shift_family','shift_parameter','severity_multiplier','schedule','method','adaptation_budget'),key),kind=kind,baseline='frozen',**summary(values,key[0]),n_adaptation_streams=len(rr),evaluation_seeds_per_stream=rr[0]['evaluation_seeds'],improved_streams=sum(v>0 for v in values),nominal_duplicate=str(float(key[4])==1),source_records=';'.join(sorted(set(r['source_records'] for r in rr)))))
+    return streams,comparisons
+
+
+def prediction_improvements(records):
+    frozen={};out=[]
+    keys=('task','cohort_id','shift_parameter','severity_multiplier','schedule','evaluation_seed')
+    for r in records:
+        if r['kind']=='fixed_bank' and r['metric']=='latent_mse' and r['method']=='frozen':frozen[tuple(r[k] for k in keys)]=r
+    for r in records:
+        key=tuple(r[k] for k in keys)
+        if r['kind']!='fixed_bank' or r['metric']!='latent_mse' or r['method']=='frozen' or key not in frozen:continue
+        b=frozen[key];out.append({**r,'frozen_mse':b['value'],'adapted_mse':r['value'],'mse_improvement':b['value']-r['value'],'baseline_source':b['source_record_id']})
+    return out
+
+
+def prediction_control_pairs(streams,pairs):
+    group=defaultdict(list)
+    keys=('task','cohort_id','shift_parameter','severity_multiplier','schedule','method','adaptation_budget','adaptation_seed')
+    for r in pairs:group[tuple(r[k] for k in keys)].append(r)
+    out=[]
+    for r in streams:
+        rr=group.get(tuple(r[k] for k in keys),[])
+        if not rr or set(x['evaluation_seed'] for x in rr)!=set(r['seed_set'].split(',')):continue
+        mse=mean(x['mse_improvement'] for x in rr)
+        out.append({**r,'mse_improvement':mse,'prediction_seeds':len(rr),'prediction_sources':';'.join(x['source_record_id'] for x in rr),
+            'quadrant':('prediction_improved' if mse>0 else 'prediction_worsened')+'/'+('control_improved' if r['mean_return_improvement']>0 else 'control_worsened')})
+    return out
+
+
+def method_contrasts(records):
+    """Pair adapted methods on the same adaptation and evaluation seeds."""
+    keys=('task','cohort_id','shift_family','shift_parameter','severity_multiplier','schedule','adaptation_budget','adaptation_seed','evaluation_seed')
+    index=defaultdict(dict)
+    for r in records:
+        if r['kind']=='shifted' and r['metric']=='episode_return' and r['method']!='frozen':index[tuple(r[k] for k in keys)][r['method']]=r
+    streams=defaultdict(list);lineage=defaultdict(set);seeds=defaultdict(set)
+    for key,observed in index.items():
+        for method in observed:seeds[key[:-1]+(method,)].add(key[-1])
+    for key,observed in index.items():
+        for left,right in (('dynamics_only','dynamics_q'),('dynamics_only','joint'),('dynamics_q','joint')):
+            if left not in observed or right not in observed:continue
+            if seeds[key[:-1]+(left,)]!=seeds[key[:-1]+(right,)]:continue
+            k=key[:-1]+(left,right)
+            streams[k].append(observed[right]['value']-observed[left]['value'])
+            lineage[k].update((observed[left]['source_record_id'],observed[right]['source_record_id']))
+    groups=defaultdict(list)
+    for k,values in streams.items():groups[k[:-3]+k[-2:]].append((mean(values),len(values),lineage[k]))
+    result=[]
+    for k,values in sorted(groups.items()):
+        result.append(dict(zip(keys[:-2]+('baseline','method'),k),**summary([x[0] for x in values],k[0]),evaluation_seeds_per_stream=min(x[1] for x in values),improved_streams=sum(x[0]>0 for x in values),source_records=';'.join(sorted(set().union(*(x[2] for x in values))))))
     return result
 
 
-def normalized_comparisons(evaluations: list[dict], comparisons: list[dict]):
-    baselines = defaultdict(dict)
-    for row in evaluations:
-        if row["metric"] == "episode_return" and row["kind"] == "shifted" and row["method"] == "frozen":
-            key = (row["task"], row["shift_family"], row["shift_parameter"], row["severity_multiplier"])
-            baselines[key][row["evaluation_seed"]] = numeric(row["value"])
-    result = []
-    for row in comparisons:
-        key = (row["task"], row["shift_family"], row["shift_parameter"], row["severity_multiplier"])
-        values = [v for v in baselines[key].values() if v is not None]
-        if not values: continue
-        scale = abs(mean(values))
-        result.append({**row, "frozen_mean_return": mean(values), "normalized_improvement":
-                       row["mean"] / scale if scale > 1e-12 else "",
-                       "normalization": "paired_delta_over_abs_condition_frozen_mean"})
+def normalized_comparisons(records,comparisons):
+    keys=('task','cohort_id','shift_parameter','severity_multiplier','schedule')
+    baseline=defaultdict(dict)
+    for r in records:
+        if r['method']=='frozen' and r['kind']=='shifted' and r['metric']=='episode_return':baseline[tuple(r[k] for k in keys)][r['evaluation_seed']]=r['value']
+    result=[]
+    for r in comparisons:
+        values=baseline[tuple(r[k] for k in keys)].values()
+        if not values:continue
+        scale=abs(mean(values))
+        result.append({**r,'normalized_improvement':r['mean']/scale if scale>1e-12 else '',
+            'normalization':'paired_delta / abs(unique-seed Frozen mean)','frozen_mean_return':mean(values)})
     return result

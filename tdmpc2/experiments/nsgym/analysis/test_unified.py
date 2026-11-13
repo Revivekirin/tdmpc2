@@ -1,74 +1,136 @@
-"""Regression against saved scientific tables; no simulator or CUDA."""
-
+"""End-to-end raw discovery contracts using temporary completed-run fixtures."""
 import csv
+import hashlib
 import json
+from pathlib import Path
 import tempfile
 import unittest
-from pathlib import Path
-
+from .discovery import Catalog
+from .sources import collect
 from .metrics import paired_improvements
-from .engine import registry
-from .sources import available, ingest
+from .__main__ import main
 
-RESULTS = Path(__file__).resolve().parents[4] / "results/nsgym"
+CONFIG=json.loads(Path(__file__).with_name('config.json').read_text())
+
+def write_json(p,d):p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(d))
+def write_csv(p,rows):
+    p.parent.mkdir(parents=True,exist_ok=True)
+    with p.open('w',newline='') as f:
+        w=csv.DictWriter(f,list(rows[0]));w.writeheader();w.writerows(rows)
+
+def fixture(root,seed=1,name='arbitrary-run',method='decision',task='halfcheetah'):
+    parameter='bthigh_damping' if task=='halfcheetah' else 'joint0_damping'
+    identity=dict(parameter=parameter,severity=2,adaptation_seed=seed,method=method,schedule='fixed')
+    config=dict(task=task,evaluation_seeds=[100,101],adaptation_seeds=[seed])
+    checkpoint='c'*64
+    train=root/name/'training';train.mkdir(parents=True)
+    snapshot=train/'snapshot-0003000.pt';snapshot.write_bytes(f'fixture {seed}'.encode());h=hashlib.sha256(snapshot.read_bytes()).hexdigest()
+    write_json(train/'manifest.json',dict(identity=identity,configuration=config,checkpoint_sha256=checkpoint))
+    write_json(train/'completion.json',dict(status='PASS',transitions=3000,updates=118,snapshot_sha256=h))
+    base=dict(task=task,checkpoint_sha256=checkpoint,configuration=config)
+    frozen=root/'shared-baseline'
+    write_json(frozen/'manifest.json',base);write_json(frozen/'completion.json',dict(status='PASS'))
+    write_csv(frozen/'episodes.csv',[dict(parameter=parameter,severity=2,seed=e,episode_return=10+e,episode_length=1000) for e in (100,101)])
+    for mode in ('shifted','prediction'):
+        batch=root/name/mode
+        write_json(batch/'manifest.json',{**base,'mode':mode})
+        write_json(batch/'completion.json',dict(status='PASS',completed=['condition'],expected=1))
+        child=batch/'condition'
+        write_json(child/'manifest.json',{**base,'mode':mode,'identity':identity,'snapshot':str(snapshot),'snapshot_sha256':h})
+        write_json(child/'completion.json',dict(status='PASS',rows=2,snapshot=str(snapshot),snapshot_sha256=h))
+        records=[dict(**identity,evaluation_seed=e,budget=3000,episode_return=12+e,episode_length=1000) if mode=='shifted' else dict(**identity,evaluation_seed=e,budget=3000,latent_mse=.1,frozen_latent_mse=.2,samples=10) for e in (100,101)]
+        write_csv(child/(mode+'.csv'),records)
+    return train
 
 
-class UnifiedAnalysisTests(unittest.TestCase):
-    def test_source_counts_and_reacher_gate(self):
-        self.assertEqual(available(RESULTS, "halfcheetah")["paired_rows"], 720)
-        self.assertEqual(available(RESULTS, "reacher")["matched_shifted_episodes"], 1440)
-        h = ingest(RESULTS, "halfcheetah", {"frozen", "dynamics_only", "dynamics_q", "joint"})
-        r = ingest(RESULTS, "reacher", {"frozen", "dynamics_only", "joint"})
-        self.assertEqual(sum(x["metric"] == "episode_return" for x in h[0]), 2880)
-        self.assertEqual(sum(x["metric"] == "episode_return" for x in r[0]), 8640)
-        self.assertFalse(any(x["method"] == "dynamics_q" for x in r[0]))
-        self.assertTrue(any(x["metric"] == "distance_final" for x in r[0]))
-        mass2 = next(x for x in r[2] if x["shift_family"] == "M0" and
-                     float(x["severity_multiplier"]) == 2 and x["metric"] == "delta_tip_m")
-        self.assertAlmostEqual(float(mass2["applied_parameter_value"]), .07120943348136864)
-
-    def test_paired_arithmetic_regression(self):
-        h = ingest(RESULTS, "halfcheetah", {"frozen", "dynamics_only", "dynamics_q", "joint"})
-        _, comparisons = paired_improvements(h[0], {"frozen", "dynamics_only", "dynamics_q", "joint"})
-        select = lambda m: next(x for x in comparisons if x["shift_parameter"] == "bthigh_damping"
-                                and float(x["severity_multiplier"]) == 2 and x["method"] == m)
-        self.assertAlmostEqual(select("dynamics_q")["mean"]-select("dynamics_only")["mean"], 487.1018, places=3)
-        self.assertAlmostEqual(select("joint")["mean"], -524.338, places=2)
-        self.assertEqual(select("joint")["n_adaptation_streams"], 3)
-        self.assertEqual(select("joint")["evaluation_seeds_per_stream"], 20)
-
-    def test_reacher_nominal_alias_not_independent(self):
-        r = ingest(RESULTS, "reacher", {"frozen", "dynamics_only", "joint"})
-        _, comparisons = paired_improvements(r[0], {"frozen", "dynamics_only", "joint"})
-        aliases = [x for x in comparisons if float(x["severity_multiplier"]) == 1]
-        self.assertTrue(aliases)
-        self.assertTrue(all(x["nominal_duplicate"] == "True" for x in aliases))
-
-    def test_q_saved_metrics_not_redecoded(self):
-        q = ingest(RESULTS, "halfcheetah", {"frozen", "dynamics_only", "dynamics_q", "joint"})[3]
-        self.assertTrue(any(x["metric"] == "entropy" and float(x["value"]) > 0 for x in q))
-        self.assertTrue(any(x["metric"] == "js" for x in q))
-        self.assertFalse(any(x["metric"] == "calibration_error" for x in q))
-
-    def test_reacher_dq_completion_gate_late_registration(self):
+class RawPipelineTests(unittest.TestCase):
+    def catalog(self,root):return Catalog(root,CONFIG['tasks'])
+    def test_new_run_discovered_and_aggregated_without_configuration_change(self):
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            config = {"reacher_dynamics_q": {}}
-            for stage in ("train", "prediction", "control", "aggregate"):
-                p = root / stage / "completion.json"
-                p.parent.mkdir()
-                p.write_text(json.dumps({"status": "PASS"}))
-                config["reacher_dynamics_q"][stage if stage == "train" else stage] = str(p.relative_to(root))
-            paths = config["reacher_dynamics_q"]
-            paths["training_completion"] = paths.pop("train")
-            for stage in ("prediction", "control", "aggregate"):
-                paths[stage + "_completion"] = paths.pop(stage)
-            (root / "aggregate/four_way_per_seed.csv").write_text("family,severity\n")
-            paths["aggregate_per_seed_csv"] = "aggregate/four_way_per_seed.csv"
-            self.assertFalse(registry(root, config)["reacher"]["dynamics_q_gate"]["passed"])
-            (root / "control/completion.json").write_text(json.dumps({"status": "PARTIAL"}))
-            self.assertFalse(registry(root, config)["reacher"]["dynamics_q_gate"]["passed"])
+            root=Path(tmp)/'results';fixture(root)
+            first=collect(self.catalog(root));_,c=paired_improvements(first.rows)
+            self.assertEqual(c[0]['n_adaptation_streams'],1)
+            fixture(root,seed=2,name='new-completed-run-id')
+            second=collect(self.catalog(root));_,c=paired_improvements(second.rows)
+            self.assertEqual(c[0]['n_adaptation_streams'],2)
+            self.assertEqual(c[0]['mean'],2)
+            main(['full','--source-root',str(root),'--output',str(Path(tmp)/'report'),'--no-plots'])
+            self.assertTrue((Path(tmp)/'report/UNIFIED_RESEARCH_REPORT.md').is_file())
+    def test_incomplete_and_smoke_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);train=fixture(root)
+            write_json(train/'completion.json',dict(status='PARTIAL'))
+            rec=collect(self.catalog(root))
+            self.assertFalse(any(r['method']=='dynamics_only' for r in rec.rows))
+            self.assertTrue(rec.c.issues)
+    def test_relocated_absolute_snapshot_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'nsgym';train=fixture(root)
+            c=self.catalog(root)
+            self.assertEqual(c.resolve('/old/server/results/nsgym/arbitrary-run/training/snapshot-0003000.pt'),(train/'snapshot-0003000.pt').resolve())
+    def test_duplicate_copies_not_counted(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root)
+            shutil.copytree(root/'arbitrary-run/shifted',root/'resumed-copy')
+            rec=collect(self.catalog(root));_,c=paired_improvements(rec.rows)
+            self.assertEqual(c[0]['n_adaptation_streams'],1)
+            self.assertEqual(c[0]['evaluation_seeds_per_stream'],2)
+            self.assertTrue(rec.duplicates)
+    def test_own_output_not_rediscovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root)
+            out=root/'anything-you-name-it'
+            write_json(out/'manifest.json',dict(no_training_or_simulator=True))
+            write_json(out/'completion.json',dict(status='PASS'))
+            write_csv(out/'shifted.csv',[dict(parameter='bthigh_damping',severity=2,evaluation_seed=100,method='decision',adaptation_seed=99,episode_return=999)])
+            c=self.catalog(root)
+            self.assertFalse(any(p.is_relative_to(out) for p in c.files))
+    def test_dq_requires_both_evaluations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root,method='reacher_dynamics_q_v1',task='reacher')
+            write_json(root/'arbitrary-run/prediction/completion.json',dict(status='PARTIAL'))
+            rec=collect(self.catalog(root))
+            self.assertFalse(any(r['method']=='dynamics_q' for r in rec.rows))
+            write_json(root/'arbitrary-run/prediction/completion.json',dict(status='PASS'))
+            rec=collect(self.catalog(root))
+            self.assertTrue(any(r['method']=='dynamics_q' for r in rec.rows))
+    def test_snapshot_tampering_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);train=fixture(root)
+            (train/'snapshot-0003000.pt').write_bytes(b'changed')
+            rec=collect(self.catalog(root))
+            self.assertFalse(any(r['method']=='dynamics_only' for r in rec.rows))
+    def test_wrong_heldout_seed_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root)
+            p=root/'arbitrary-run/shifted/condition/shifted.csv'
+            rows=list(csv.DictReader(p.open()));rows[0]['evaluation_seed']='999'
+            write_csv(p,rows);rec=collect(self.catalog(root))
+            self.assertFalse(any(r['method']=='dynamics_only' and r['kind']=='shifted' for r in rec.rows))
+    def test_conflicting_resume_excluded(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root)
+            shutil.copytree(root/'arbitrary-run/shifted',root/'resume')
+            p=root/'resume/condition/shifted.csv';rows=list(csv.DictReader(p.open()));rows[0]['episode_return']='999'
+            write_csv(p,rows);rec=collect(self.catalog(root))
+            self.assertTrue(any('Conflicting' in r['reason'] for r in rec.c.issues))
+            self.assertFalse(any(r['method']=='dynamics_only' and r['kind']=='shifted' and r['metric']=='episode_return' and r['evaluation_seed']=='100' for r in rec.rows))
+    def test_independent_selections(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'data';fixture(root)
+            output=Path(tmp)/'report'
+            main(['full','--source-root',str(root),'--output',str(output),'--task','halfcheetah','--method','dynamics_only','--shift-family','damping','--severity','2','--schedule','fixed','--no-plots'])
+            rows=list(csv.DictReader((output/'comparisons.csv').open()))
+            self.assertEqual(len(rows),1)
+            self.assertEqual(rows[0]['method'],'dynamics_only')
 
+    def test_schedule_isolation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root);rec=collect(self.catalog(root))
+            for r in rec.rows:
+                if r['method']=='dynamics_only':r['schedule']='abrupt'
+            self.assertEqual(paired_improvements(rec.rows)[1],[])
 
-if __name__ == "__main__":
-    unittest.main()
+if __name__=='__main__':unittest.main()

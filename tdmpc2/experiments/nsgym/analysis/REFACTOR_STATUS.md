@@ -1,56 +1,39 @@
-# NS-Gym analysis refactor status
+# NS-Gym raw-to-report implementation status
 
-**PARTIAL — real migration and retirement completed; full runtime-dependent consolidation remains deferred.**
+The current work replaces manual historical-source registration in the existing analysis package. It does not claim that every training/runtime-dependent legacy helper has been retired.
 
-## Actual changes
+## Implemented
 
-- Inspected 52 source files / 415 function records across outer and executable projects. The function-level CSV records actual paths, source fingerprints, static callers, classification and target.
-- Migrated 5 independent postprocessors (89 original functions, including their entry functions) into the package. Migrated/delegated 3 Q aggregation functions, for 92 migration records total.
-- Retired 7 files: 5 original active-project entry scripts and 2 byte-identical outer-project copies. No hundreds-of-files legacy archive was created; originals are recoverable from Git revision 97c6c67addaa728cb479c09dd2de1ffa105ea5d3.
-- Centralized strict JSON/CSV reads, streaming SHA256, CSV writes and policy-specific bootstrap. The Q runner delegates its summary computation to q_statistics.py; native measurement/inference equations remain unchanged.
-- Replaced the prototype's incompatible 20261113/2000 CI with original task policies. Preserved planning hybrid labels and method filters. This fixes prototype behavior; it does not revise the historical scientific measurements.
-- One package CLI dispatches 11 operations and 5 historical input formats. Source/task schema registration is in the existing JSON analysis config. No second Hydra configuration was introduced.
+- Discover source stages from metadata, completion records, identities, CSV schemas and snapshot provenance. `config.json` holds task/method semantics, not historical CSV paths.
+- Read the user-provided full server results copy directly. No transfer archive or previously generated comparison table is a required input.
+- Validate snapshot/CSV hashes, training completion, evaluation seed sets and source pairing. Exclude smoke, incomplete stages, conflicting duplicates and resumed overlap. Detect the analyzer's own outputs by provenance markers.
+- Reconstruct nominal, physical, Frozen, Dynamics-only, Dynamics+Q, Joint, retention, action-effort, Q and planning measurements wherever saved raw evidence supports them. Keep changed-encoder Joint MSE separate.
+- Aggregate by adaptation seed, retain negative results, and separate checkpoints, schedules and budgets. Preserve raw-row lineage through summaries and figure data.
+- Auto-include newly completed supported runs without config edits. Reacher Dynamics+Q requires completed training plus matching held-out prediction/control and snapshot evidence.
 
-## Size, without hiding added modules
+## Verification and limits
 
-For the explicitly defined scope in CODE_SIZE_COMPARISON.json, Python lines changed from **5056 to 4659 (-397)**, including new regression/tests. Python file count changed from **14 to 18** because common IO/statistics/validation are separate modules. Seven old script paths are actually gone; public postprocessing interfaces changed from eight to one. This is not a claim that every remaining runtime analysis path has been consolidated.
+The actual execution used `/Users/jihyekim/Desktop/tdmpc2/results/nsgym`, the server originals copied by the user. No remote server execution is claimed. Automatic discovery inspected 15,782 files and 2,773 experiment entries; these are not independent scientific replicates.
 
-## Verification
+The final full original-data run (`unified-analysis/raw-to-report-v2`) produced:
 
-- 37 analysis, migration, duplicate/seed pairing, real CPU WorldModel Q decoding, Bellman/planning, state/RNG and existing-mechanism tests passed in 19.3 seconds.
-- 10 operation executions with saved inputs, 5 adapter help checks, and one config-only synthetic task registration passed. The eleventh operation, validate, was run separately on the complete registered corpus.
-- 57,160 numerical field checks: **57,072 EXACT; 88 TOLERANCE; 0 FAIL**. Includes all 84 unified method/condition comparisons against original summaries. Tolerance is rtol=1e-9, atol=1e-12. These counts are not independent experiments.
-- Original and migrated physical pipelines generated seven CSVs with byte-identical contents, including abrupt alignment and action-regime counts.
-- All 815 recorded regression input files still match their SHA256 hashes.
-- Protected runtime function bodies were checked unchanged. Q's extracted aggregation is the deliberate exception, exercised by CPU tests and saved-data regression.
-- Physical simulator regression was **BLOCKED**: the available local NS-Gym checkout lacks ns_gym.schedulers. No dependency installation, training, adaptation or environment evaluation was launched.
-- A combined-test import-path conflict exposed during verification was fixed by appending the analysis import path, preserving TD-MPC2 core-module resolution. The final 37-test run passed.
+- 145,780 canonical scalar measurements; 140,980 raw-reproduced and 4,800 explicitly derived-only.
+- 84 method/condition comparisons: HalfCheetah 36 and Reacher 48, plus separate adapted-method contrasts.
+- 23 figures with saved numeric inputs and source lineage.
+- Regression: 93,213 EXACT, 10,306 TOLERANCE, 6 documented NUMERICAL_DIFFERENCE, zero FAIL and zero invalid sources.
+- 61,742 duplicate scalar records excluded. This is not a count of independent episodes.
+- Source immutability passed; 6,562 consumed source/provenance files fingerprinted.
 
-## Scientific artifacts
+Fifteen unit/integration tests passed, including a newly introduced run ID contributing to the report without a config edit, automatic Reacher DQ completion gating, relocated paths, snapshot tampering, seed mismatch and duplicate exclusion. All requested CLI operations were exercised on temporary fixtures; the full original-data command exercises both tasks and Q/planning end to end. Only temporary fixtures were removed.
 
-The new output contains both-task reports, canonical source-linked tables, nominal-retention comparisons, Q/planning tables and 14 PNGs. PNG-only integrated physical panels replace redundant separate physical figures and duplicate SVG copies. Prior local-v10 and all original experiment results remain unchanged. Read NSGYM_UNIFIED_RESEARCH_REPORT.md under reports/ and the regression coverage gaps before interpreting results.
+Q arrays were independently decoded with the existing TD-MPC2 categorical math. Original GPU float32 per-observation values remain the statistical inputs after verification. Six cancellation-sensitive differences outside direct tolerance but within a recorded propagated float32 bound are documented separately, not called exact matches. Bellman targets were not saved; residual/CE remain DERIVED_ONLY.
 
-HalfCheetah validation remains fixed at the experiment's 750k primary; the older nominal audit's provisional 950k selection is not substituted. Reacher nominal retention is available; HalfCheetah shifted-adapted nominal retention remains NOT_EVALUATED. Reacher D+Q is excluded until training, prediction, control, seed grids and snapshot/CSV hashes pass. Joint changed-encoder MSE is not pooled with fixed-encoder MSE. No Q calibration or planning regret was invented.
+Current scientific coverage is `PASS_WITH_COVERAGE_GAPS`: HalfCheetah shifted-adapted nominal retention and Reacher DQ held-out prediction/control are absent. These missing evaluations were not fabricated or launched. A new task/schema/procedure still needs explicit semantic adapter support.
 
-## Remaining migration gaps
+The final presentation revision uses matching CI colors, source-backed nominal parameter labels and explicit DERIVED_ONLY figure labels. The final run passed with the counts above; canonical tables and comparisons were byte-identical to v1. All final Python code fingerprints match SOURCE_PROVENANCE.json. See the output completion and regression records for the evidence.
 
-1. `analyze_dynamics_q.py`, `analyze_reacher_pipeline.py`, and `analyze_existing_mechanisms.py` remain byte-identical because they are runtime/active Reacher D+Q dependencies. Their aggregation code is not fully migrated. Server process imports cannot be inspected locally.
-2. `severity_analysis.py`, `plot_results.py`, nominal audit/evaluation runners retain runtime responsibilities. Their remaining statistical helpers are not all consolidated.
-3. Reacher raw physical probes, all adaptation-budget stages and nominal training JSONL are not covered end-to-end by this registered local regression corpus. Saved Reacher summary evidence remains available, with its original provenance limitations.
-4. New tasks with compatible export schemas can register through config; a genuinely new export schema still needs an ingestion adapter. Full numerical validation for a new task must be registered explicitly.
-5. The physical test dependency must be available before claiming simulator-suite verification. No full refactor completion claim is made while these gaps remain.
+## Preserved scope
 
-## Cleanup
+Training algorithms, experiment runners, checkpoints, snapshots, raw data and existing scientific results were not changed. No simulator rollout, training, remote process interruption, commit or push was performed. Runtime-dependent legacy aggregators remain outside this raw-ingestion task; previous migration inventories are historical records, not claims of complete runtime consolidation.
 
-LOCAL_CLEANUP_MANIFEST.csv lists exact paths and classifications. No complete byte-identical directory backup was certified, so **no result deletion is proposed or performed**. UNKNOWN and IN_PROGRESS directories remain retained. Duplicate script removal is separate from scientific result cleanup.
-
-## Reproduction
-
-See the package README for copy-paste commands. From the executable project use:
-
-```bash
-python -m experiments.nsgym.analysis full --source-root /path/to/results/nsgym --output /new/output
-python -m experiments.nsgym.analysis validate --source-root /path/to/results/nsgym --unified-output /new/output --output /new/output/regression
-```
-
-No commit, push, remote branch change, server job interruption, checkpoint modification or local result-archive deletion was performed.
+See README.md for discovery, validation, full, per-task, Q/planning and new-run commands. `full` includes regression; separate validation is optional unless checking a later source change.

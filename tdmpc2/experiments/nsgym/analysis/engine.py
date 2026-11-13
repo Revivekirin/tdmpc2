@@ -1,499 +1,177 @@
-"""Unified read-only analysis CLI. Run from the executable project root."""
-
+"""Authoritative raw-to-report execution. All inputs come from discovered metadata."""
 from __future__ import annotations
-
-import argparse
-import ast
-import csv
 import json
-import os
 import platform
-import subprocess
-from collections import Counter, defaultdict
+from collections import Counter,defaultdict
 from pathlib import Path
-from statistics import mean
+import numpy as np
+from .discovery import Catalog,first
+from .sources import collect
+from .schema import write_csv,sha256
+from .metrics import summarize_records,paired_improvements,prediction_improvements,prediction_control_pairs,method_contrasts,normalized_comparisons
 
-from .metrics import paired_improvements, prediction_improvements, prediction_control_pairs, normalized_comparisons
-from .schema import COMMON, IDENTITY, numeric, read_json, sha256, write_csv
-from .sources import SOURCES, available, ingest, ingest_completed_reacher_dq
-
-PROJECT = Path(__file__).resolve().parents[3]
-WORKSPACE = PROJECT.parent
-DEFAULT_RESULTS = WORKSPACE / "results/nsgym"
-DEFAULT_OUTPUT = DEFAULT_RESULTS / "unified-analysis/refactor-v1"
-COMPARISON_FIELDS = ("task", "shift_family", "shift_parameter", "severity_multiplier", "method",
-                     "baseline", "n_adaptation_streams", "evaluation_seeds_per_stream", "mean",
-                     "median", "std", "ci_low", "ci_high", "improved_streams", "nominal_duplicate", "uncertainty_unit")
+PROJECT=Path(__file__).resolve().parents[3]
+DEFAULT_RESULTS=PROJECT.parent/'results/nsgym' if (PROJECT.parent/'results/nsgym').is_dir() else PROJECT/'results/nsgym'
 
 
-def rel(path: Path, root: Path) -> str:
-    return str(path.relative_to(root))
+def table(out,name,data):
+    data=list(data);fields=list(dict.fromkeys(k for r in data for k in r)) or ['status']
+    write_csv(out/name,data,fields)
 
 
-def classify(path: Path) -> tuple[str, str]:
-    name = path.name.lower()
-    parent = str(path.parent).lower()
-    if name.endswith((".pt", ".pth", ".ckpt")):
-        return "B", "checkpoint_or_snapshot"
-    if "smoke" in parent or "validation" in parent and "physical-validation" not in parent:
-        return "E", "test_or_smoke"
-    if "reacher-dynamics-q-v1" in parent:
-        return "G", "incomplete_experiment_or_preparation"
-    if name in ("episodes.csv", "steps.csv") or name.endswith("_episodes.csv"):
-        return "C", "evaluation_or_rollout_record"
-    if name.endswith((".npz", ".npy", ".jsonl")):
-        return "A", "raw_scientific_record"
-    if name.endswith((".png", ".pdf", ".svg")):
-        return "D", "derived_figure"
-    if name.endswith(".csv"):
-        return "D", "derived_or_summary_table"
-    if name in ("completion.json", "manifest.json"):
-        return "A", "provenance_or_completion"
-    return "F", "other_or_superseded_candidate"
+def figures(out,summaries,comparisons,coupling):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    outputs=[]
+    nominal_values={(r['task'],r['cohort_id'],r['shift_parameter']):r['nominal_parameter'] for r in summaries if r.get('nominal_parameter') not in ('',None)}
+    def draw(name,records,value='mean',ylabel='Mean ± 95% bootstrap CI'):
+        if not records:return
+        # Every subplot has a single task/checkpoint/schedule/physical parameter/metric/budget.
+        panels=defaultdict(list)
+        for r in records:panels[tuple(str(r.get(k,'')) for k in ('task','cohort_id','schedule','shift_parameter','metric','adaptation_budget','kind'))].append(r)
+        pages=[list(panels.items())[i:i+8] for i in range(0,len(panels),8)]
+        for page,items in enumerate(pages):
+            fig,axes=plt.subplots(len(items),1,figsize=(10,3.2*len(items)),squeeze=False)
+            for ax,(key,rr) in zip(axes[:,0],items):
+                for method in sorted({r['method'] for r in rr}):
+                    vals=sorted([r for r in rr if r['method']==method],key=lambda r:float(r['severity_multiplier']))
+                    x=[float(r['severity_multiplier']) for r in vals];y=[r[value] for r in vals]
+                    # Percentile intervals need not contain the mean at n=3. Draw endpoints without clipping them.
+                    line,=ax.plot(x,y,'o-',label=method)
+                    for xx,r in zip(x,vals):
+                        if r.get('ci_low') is not None:ax.vlines(xx,r['ci_low'],r['ci_high'],alpha=.5,color=line.get_color())
+                ax.axhline(0,color='gray',lw=.7);ax.set_xlabel('Physical multiplier (k=1: nominal)');ax.set_ylabel({'root_velocity_l2':'Root velocity difference [m/s]','joint_velocity_l2':'Joint velocity difference [rad/s]','delta_qvel_rad_s':'Joint velocity difference [rad/s]','delta_tip_m':'Tip displacement [m]'}.get(key[4],ylabel))
+                nominal=next((r.get('nominal_parameter') for r in rr if r.get('nominal_parameter') not in ('',None)),nominal_values.get((key[0],key[1],key[3]),'not recorded'))
+                budget='saved diagnostic dataset' if key[6].startswith('q_') else f'budget={key[5]}'
+                evidence='; DERIVED_ONLY' if any(r.get('evidence')=='DERIVED_ONLY' for r in rr) else ''
+                ax.set_title(f'{key[0]} | {key[3]} | {key[2]} | {key[4] or "return − Frozen"}{evidence}\nnominal parameter={nominal}; {budget}; checkpoint={key[1][:12]}')
+                ax.legend(fontsize=8);ax.grid(alpha=.2)
+            fig.tight_layout();filename=f'{name}{"-"+str(page+1) if len(pages)>1 else ""}.png';fig.savefig(out/filename,dpi=140);plt.close(fig)
+            outputs.append(dict(figure=filename,rows=[r for _,rr in items for r in rr],value_column=value))
+    for task in sorted({r['task'] for r in summaries}):
+        nominal=[r for r in summaries if r['task']==task and r['kind']=='nominal_validation' and r['metric']=='episode_return']
+        if nominal:
+            fig,ax=plt.subplots(figsize=(8,4))
+            nominal.sort(key=lambda r:float(r['checkpoint_id']) if str(r['checkpoint_id']).isdigit() else 0)
+            ax.plot(range(len(nominal)),[r['mean'] for r in nominal],'o-')
+            ax.set_xticks(range(len(nominal)),[r['checkpoint_id'][:14] for r in nominal],rotation=30)
+            for i,r in enumerate(nominal):
+                if r['ci_low'] is not None:ax.vlines(i,r['ci_low'],r['ci_high'])
+            ax.set(xlabel='Nominal checkpoint transitions',ylabel='Held-out episode return',title=task+' nominal validation')
+            fig.tight_layout();name=task+'_nominal_validation.png';fig.savefig(out/name,dpi=140);plt.close(fig)
+            outputs.append(dict(figure=name,rows=nominal,value_column='mean'))
+        draw(f'{task}_adaptation', [r for r in comparisons if r['task']==task],ylabel='Paired return improvement over Frozen')
+        draw(f'{task}_frozen', [r for r in summaries if r['task']==task and r['method']=='frozen' and r['kind']=='shifted' and r['metric']=='episode_return'],ylabel='Episode return')
+        draw(f'{task}_physical', [r for r in summaries if r['task']==task and r['kind']=='physical' and r['metric'] in ('root_velocity_l2','joint_velocity_l2','delta_qvel_rad_s','delta_tip_m')],ylabel='Recorded physical response (metric units)')
+        draw(f'{task}_prediction', [r for r in summaries if r['task']==task and r['kind']=='fixed_bank' and r['metric']=='latent_mse'],ylabel='Held-out latent MSE')
+        draw(f'{task}_action_effort', [r for r in summaries if r['task']==task and r['kind']=='shifted' and r['metric'] in ('action_saturation','actuator_force_saturation','actuator_force_rms','action_abs','control_cost')])
+        draw(f'{task}_nominal_retention', [r for r in summaries if r['task']==task and r['kind']=='nominal' and r['metric']=='episode_return'],ylabel='Nominal retention episode return')
+    draw('q_distribution',[r for r in summaries if r['kind']=='q_immediate' and r['metric'] in ('q','entropy','bellman_residual')])
+    draw('planning',[r for r in summaries if r['kind'] in ('q_planning','q_ranking','q_terminal','q_counterfactual')])
+    if coupling:
+        fig,ax=plt.subplots(figsize=(9,6))
+        for task in sorted({r['task'] for r in coupling}):
+            rr=[r for r in coupling if r['task']==task];ax.scatter([r['mse_improvement'] for r in rr],[r['mean_return_improvement'] for r in rr],label=task,alpha=.65)
+        ax.axhline(0,color='gray');ax.axvline(0,color='gray');ax.set(xlabel='Frozen MSE − adapted MSE',ylabel='Adapted return − Frozen return',title='Matched adaptation streams; descriptive association');ax.legend();fig.tight_layout();fig.savefig(out/'prediction_vs_control.png',dpi=140);plt.close(fig)
+        outputs.append(dict(figure='prediction_vs_control.png',rows=coupling,value_column='mean_return_improvement'))
+    (out/'figure_data.json').write_text(json.dumps(outputs,indent=2))
+    return outputs
 
 
-def inventory(results: Path):
-    output = []
-    completion_cache = {}
-    for path in sorted(results.rglob("*")):
-        if not path.is_file() or path.is_symlink() or "unified-analysis" in path.parts:
-            continue
-        stage = path.relative_to(results).parts[0]
-        stage_path = results / stage
-        if stage not in completion_cache:
-            c = read_json(stage_path / "completion.json")
-            if not c: c = read_json(stage_path / "provenance/completion.json")
-            completion_cache[stage] = c.get("status", "UNKNOWN")
-        category, role = classify(path)
-        task = "reacher" if "reacher" in stage else ("halfcheetah" if stage not in ("preview-v1",) else "unknown")
-        output.append(dict(path=rel(path, results), stage=stage, task=task,
-                           category=category, role=role, bytes=path.stat().st_size,
-                           completion_status=completion_cache[stage],
-                           sha256=sha256(path) if path.stat().st_size <= 65536 and
-                           path.suffix in (".csv", ".json", ".md") else "",
-                           hash_status="sha256" if path.stat().st_size <= 65536 and
-                           path.suffix in (".csv", ".json", ".md") else "not_hashed_large_or_binary"))
-    return output
+def coverage(catalog,records):
+    grouped=defaultdict(list)
+    for r in records:grouped[(r['task'],r['method'],r['kind'],r['metric'],r['evidence'])].append(r)
+    rows=[dict(zip(('task','method','analysis','metric','evidence'),k),canonical_records=len(rr),sources=len({r['source_path'] for r in rr})) for k,rr in sorted(grouped.items())]
+    for task in catalog.registry:
+        for method in ('frozen','dynamics_only','dynamics_q','joint'):
+            trained=[x for x in catalog.training.values() if x['task']==task and x['method']==method and x['status']=='PASS']
+            rows.append(dict(task=task,method=method,analysis='adaptation_training',metric='completed_streams',evidence='RAW_REPRODUCED' if trained else 'MISSING',canonical_records=len(trained),sources=len(trained)))
+            for kind in ('shifted','fixed_bank'):
+                if method=='joint' and kind=='fixed_bank':kind='joint_self_consistency'
+                if not any(r['task']==task and r['method']==method and r['kind']==kind for r in records):rows.append(dict(task=task,method=method,analysis=kind,metric='',evidence='MISSING',canonical_records=0,sources=0))
+        for kind in ('nominal_validation','physical','fixed_bank','shifted','nominal','q_immediate','q_planning'):
+            if task=='reacher' and kind.startswith('q_'):continue
+            if not any(r['task']==task and r['kind']==kind for r in records):rows.append(dict(task=task,method='',analysis=kind,metric='',evidence='MISSING',canonical_records=0,sources=0))
+    return rows
 
 
-def registry(results: Path, config: dict):
-    reacher_dq = read_json(results / "reacher-dynamics-q-v1/provenance/completion.json")
-    paths = config.get("reacher_dynamics_q", {})
-    from .sources import completed_reacher_dq
-    dq_ready = completed_reacher_dq(results, paths)
-    result = {
-        "halfcheetah": {"checkpoint": SOURCES["halfcheetah"]["checkpoint_id"],
-                         "methods": {m: "COMPLETE_LOCAL_SOURCE" for m in ("frozen", "dynamics_only", "dynamics_q", "joint")}},
-        "reacher": {"checkpoint": "checkpoint-000670000",
-                    "methods": {"frozen": "COMPLETE_LOCAL_SOURCE", "dynamics_only": "COMPLETE_LOCAL_SOURCE",
-                                "joint": "COMPLETE_LOCAL_SOURCE", "dynamics_q": "COMPLETE" if dq_ready else "IN_PROGRESS — EXCLUDED FROM CURRENT REPORT"},
-                    "dynamics_q_gate": {"requires": ["training PASS", "prediction PASS", "shifted control PASS",
-                                                     "matched held-out seeds", "snapshot hashes"],
-                                        "local_record": reacher_dq.get("status", "MISSING"), "passed": dq_ready}},
-    }
-    for task, cfg in SOURCES.items():
-        if task not in result:
-            adapter=cfg['adapter']
-            if adapter not in result:raise ValueError(f'Unsupported source schema: {adapter}')
-            result[task] = dict(result[adapter], checkpoint=cfg.get('checkpoint_id','unknown'))
-    return result
+def report(out,catalog,rec,summaries,comparisons,cov,regression):
+    lines=['# Unified NS-Gym research report','',
+        'This report was rebuilt from automatically discovered completed source records. No training, model inference or environment rollout was run.',
+        '',f'Source root: `{catalog.root}`. Canonical measurements: {len(rec.rows)}. Paired return conditions: {len(comparisons)}.',
+        '', 'Each adaptation seed is one statistical sampling unit; held-out episodes are paired by seed. Frozen replicas are shared references. k=1 family labels are nominal aliases, not independent tasks. Joint encoder-changing MSE is reported separately. Checkpoints, schedules and adaptation budgets are kept separate.',
+        '', '## Paired held-out return results','']
+    for r in comparisons:
+        lines.append(f'- {r["task"]} / {r["shift_parameter"]} ×{r["severity_multiplier"]} / {r["schedule"]} / {r["method"]}, budget {r["adaptation_budget"]}: Δreturn={r["mean"]:.6g}, median={r["median"]:.6g}, CI=[{r["ci_low"]}, {r["ci_high"]}], improved {r["improved_streams"]}/{r["n_adaptation_streams"]}. Sources: ' + ' '.join(f'[{Path(s.rsplit(":",1)[0]).name}]({catalog.root/s.rsplit(":",1)[0]})' for s in sorted(set(r['source_records'].split(';')))[:4]))
+    lines += ['', 'Every complete lineage is retained in `comparisons.csv:source_records`; each canonical row contains the exact source path, row range and SHA256.',
+        '', '## Q and planning evidence','',
+        'Q decoding uses the existing categorical TD-MPC2 implementation: symexp(E[symlog-support]), not E[symexp(support)]. Stored logits are decoded on CPU. Q arrays and per-observation measurements are distinguished from derived-only diagnostics. Missing Bellman targets prevent independent residual reconstruction. Candidate rank overlap describes shared model-score proposals; actual candidate returns/regret were not measured.',
+        '', '## Coverage','',f'Regression: {regression["status"]}; counts: {regression["counts"]}.',
+        'GPU float32 measurements remain the scientific values after independent CPU decoding checks. Cancellation-sensitive differences beyond direct tolerance are listed as NUMERICAL_DIFFERENCE in RAW_TO_REPORT_CHECKS.csv, with measured error and propagated float32 bound. This status is not an exact regression match.',
+        'Missing actuator-force saturation is never replaced with zero or inferred from action-component saturation. Adaptation costs and optimization budgets are listed in ADAPTATION_COSTS.csv; method contrasts are procedure comparisons, not isolated causal interventions.',
+        'See SOURCE_COVERAGE.csv and UNRESOLVED_DATA_GAPS.md for measured, derived-only, missing and invalid evidence.']
+    (out/'UNIFIED_RESEARCH_REPORT.md').write_text('\n'.join(lines)+'\n')
+    gaps=['# Unresolved data gaps','']
+    for r in cov:
+        if r['evidence'] in ('MISSING','DERIVED_ONLY'):gaps.append(f'- {r["task"]}/{r["method"]}/{r["analysis"]}/{r["metric"]}: {r["evidence"]}.')
+    for r in catalog.issues:gaps.append(f'- {r["status"]}: {r["path"]}: {r["reason"]}')
+    gaps += ['', 'Incomplete/smoke sources are listed separately in EXCLUDED_SOURCES.csv. They are not scientific failures and do not enter aggregates.',
+             'The original server process was not accessed; execution used the user-provided server results copy. Missing raw targets or unsupported schemas are not inferred.']
+    (out/'UNRESOLVED_DATA_GAPS.md').write_text('\n'.join(gaps)+'\n')
 
 
-
-def plot(output: Path, evaluations: list[dict], predictions: list[dict], comparisons: list[dict], physical: list[dict], q: list[dict],
-         prediction_control: list[dict], normalized: list[dict], task_metrics: dict):
-    try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-    except ImportError:
-        return ["matplotlib unavailable; figures not generated"]
-    fig_dir = output / "figures"
-    fig_dir.mkdir(exist_ok=True)
-    notes = []
-    for task in sorted({r["task"] for r in comparisons}):
-        subset = [r for r in comparisons if r["task"] == task]
-        if not subset: continue
-        fig, ax = plt.subplots(figsize=(11, 5))
-        conditions = sorted({(r["shift_family"], r["severity_multiplier"]) for r in subset},
-                            key=lambda v: (v[0], float(v[1])))
-        labels = [f"{f} ×{s}" for f, s in conditions]
-        methods = sorted({r["method"] for r in subset})
-        width = .8 / len(methods)
-        for i, method in enumerate(methods):
-            indexed = {(r["shift_family"], r["severity_multiplier"]): r for r in subset if r["method"] == method}
-            heights = [indexed.get(c, {}).get("mean", float("nan")) for c in conditions]
-            ax.bar([j-.4+width*(i+.5) for j in range(len(conditions))], heights, width, label=method)
-        ax.axhline(0, color="black", linewidth=.8)
-        ax.set_xticks(range(len(labels)), labels, rotation=55, ha="right")
-        ax.set_ylabel("Held-out return difference vs Frozen")
-        ax.set_title(f"{task}: adaptation-stream means; nominal ×1 family labels share physics")
-        ax.legend()
-        fig.tight_layout()
-        for suffix in ("png",):
-            fig.savefig(fig_dir / f"{task}_adaptation.{suffix}", dpi=160)
-        plt.close(fig)
-    # Common severity view: physical response, fixed-bank Frozen mismatch, Frozen control.
-    for task in sorted({r["task"] for r in physical}):
-        for parameter in sorted({r["shift_parameter"] for r in physical if r["task"] == task}):
-            metric = task_metrics.get(task, {}).get("physical_response_metric", "")
-            probes = [r for r in physical if r["task"] == task and r["shift_parameter"] == parameter and r["metric"] == metric]
-            if not probes: continue
-            severities = sorted({float(r["severity_multiplier"]) for r in probes})
-            family = probes[0]["shift_family"]
-            series = []
-            for severity in severities:
-                matching = lambda r: (r["task"] == task and r["shift_family"] == family and
-                                      r["shift_parameter"] == parameter and float(r["severity_multiplier"]) == severity)
-                pp = [float(r["value"]) for r in probes if matching(r) and numeric(r["value"]) is not None]
-                # Frozen rows are repeated across adaptation streams; deduplicate by evaluation seed.
-                for source, measure in ((predictions, "latent_mse"), (evaluations, "episode_return")):
-                    unique = {r["evaluation_seed"]: float(r["value"]) for r in source if matching(r) and
-                              r["method"] == "frozen" and r["metric"] == measure and
-                              r["kind"] in ("fixed_bank", "shifted") and numeric(r["value"]) is not None}
-                    if source is predictions:
-                        latent = mean(unique.values()) if unique else float("nan")
-                    else:
-                        control = mean(unique.values()) if unique else float("nan")
-                series.append((mean(pp) if pp else float("nan"), latent, control))
-            if not series: continue
-            fig, axes = plt.subplots(3, 1, figsize=(8, 9))
-            for ax, idx, label in zip(axes, range(3), (metric, "Frozen fixed-bank latent MSE", "Frozen held-out return")):
-                ax.plot(severities, [r[idx] for r in series], "o-")
-                ax.set_ylabel(label)
-                ax.set_xticks(severities)
-                ax.set_xlabel("Severity multiplier")
-            nominal = next((r["applied_parameter_value"] for r in probes if float(r["severity_multiplier"]) == 1), "")
-            nominal_label = f"{float(nominal):.5g}" if nominal else "unknown"
-            fig.suptitle(f"{task} {parameter}: physical → latent → control; nominal parameter {nominal_label}")
-            fig.tight_layout()
-            for suffix in ("png",):
-                fig.savefig(fig_dir / f"{task}_physical_latent_control_{parameter}.{suffix}", dpi=160)
-            plt.close(fig)
-    if q:
-        rr = [r for r in q if r["metric"] == "entropy" and r["kind"] == "immediate" and numeric(r["value"]) is not None]
-        grouped = defaultdict(list)
-        for r in rr: grouped[r["method"]].append(float(r["value"]))
-        if grouped:
-            fig, ax = plt.subplots(figsize=(6, 4))
-            ax.bar(list(grouped), [mean(v) for v in grouped.values()])
-            ax.set_ylabel("Categorical Q entropy (saved per-stream means)")
-            ax.set_title("HalfCheetah immediate Q; descriptive, not calibration")
-            fig.tight_layout()
-            for suffix in ("png",):
-                fig.savefig(fig_dir / f"halfcheetah_q_entropy.{suffix}", dpi=160)
-            plt.close(fig)
-        plans = [r for r in q if r["kind"] == "planning" and r["metric"] in ("reward_sum", "terminal_contribution")
-                 and numeric(r["value"]) is not None]
-        if plans:
-            grouped = defaultdict(list)
-            for r in plans: grouped[(r["method"], r["metric"])].append(float(r["value"]))
-            fig, ax = plt.subplots(figsize=(7, 4))
-            methods = sorted({k[0] for k in grouped})
-            for i, metric in enumerate(("reward_sum", "terminal_contribution")):
-                ax.bar([j + (i-.5)*.36 for j in range(len(methods))],
-                       [mean(grouped.get((m, metric), [float("nan")])) for m in methods], .36,
-                       label=metric)
-            ax.set_xticks(range(len(methods)), methods)
-            ax.set_ylabel("Native planning component (saved per-stream means)")
-            ax.legend()
-            fig.tight_layout()
-            for suffix in ("png",):
-                fig.savefig(fig_dir / f"halfcheetah_planning_components.{suffix}", dpi=160)
-            plt.close(fig)
-    if prediction_control:
-        tasks = sorted({r["task"] for r in prediction_control})
-        fig, axes = plt.subplots(1, len(tasks), figsize=(5.5*len(tasks), 4), squeeze=False)
-        for ax, task in zip(axes[0], tasks):
-            for method in sorted({r["method"] for r in prediction_control if r["task"] == task}):
-                rr = [r for r in prediction_control if r["task"] == task and r["method"] == method]
-                ax.scatter([r["mse_improvement"] for r in rr],
-                           [r["mean_return_improvement"] for r in rr], label=method, alpha=.7)
-            ax.axhline(0, color="black", linewidth=.8)
-            ax.axvline(0, color="black", linewidth=.8)
-            ax.set_title(task)
-            ax.set_xlabel("Frozen MSE − adapted MSE")
-            ax.set_ylabel("Adapted return − Frozen return")
-            ax.legend()
-        fig.tight_layout()
-        for suffix in ("png",):
-            fig.savefig(fig_dir / f"prediction_vs_control.{suffix}", dpi=160)
-        plt.close(fig)
-    if normalized:
-        rr = [r for r in normalized if float(r["severity_multiplier"]) != 1 and
-              numeric(r["normalized_improvement"]) is not None]
-        tasks = sorted({r["task"] for r in rr})
-        fig, axes = plt.subplots(1, len(tasks), figsize=(5.5*len(tasks), 4), squeeze=False)
-        for ax, task in zip(axes[0], tasks):
-            methods = sorted({r["method"] for r in rr if r["task"] == task})
-            values = [[r["normalized_improvement"] for r in rr if r["task"] == task and r["method"] == m]
-                      for m in methods]
-            ax.boxplot(values, tick_labels=methods)
-            ax.axhline(0, color="black", linewidth=.8)
-            ax.set_title(task)
-            ax.set_ylabel("Δ return / |condition Frozen mean|")
-        fig.tight_layout()
-        for suffix in ("png",):
-            fig.savefig(fig_dir / f"cross_task_normalized.{suffix}", dpi=160)
-        plt.close(fig)
-    for task in sorted({r["task"] for r in evaluations}):
-        action = [r for r in evaluations if r["task"] == task and r["kind"] == "shifted" and
-                  r["metric"] == "action_saturation" and numeric(r["value"]) is not None]
-        if not action: continue
-        grouped = defaultdict(dict)
-        for r in action:
-            key = (r["shift_parameter"], r["severity_multiplier"], r["method"])
-            grouped[key][(r["adaptation_seed"], r["evaluation_seed"])] = float(r["value"])
-        fig, ax = plt.subplots(figsize=(9, 4))
-        for method in sorted({k[2] for k in grouped}):
-            rr = sorted(((p, float(s), mean(values.values())) for (p, s, m), values in grouped.items() if m == method),
-                        key=lambda x: (x[0], x[1]))
-            by_parameter = defaultdict(list)
-            for p, s, v in rr: by_parameter[p].append((s, v))
-            for parameter, points in by_parameter.items():
-                ax.plot([x[0] for x in points], [x[1] for x in points], "o-", label=f"{parameter}: {method}")
-        force = any(r["task"] == task and r["metric"] in ("force_saturation", "actuator_force_saturation") and
-                    numeric(r["value"]) is not None for r in evaluations)
-        ax.set_title(f"{task} commanded action saturation; actuator force saturation " +
-                     ("measured separately in source CSV" if force else "NOT_MEASURED"))
-        ax.set_xlabel("Severity multiplier")
-        ax.set_ylabel("Fraction of action components saturated")
-        ax.legend(fontsize=7, ncol=2)
-        fig.tight_layout()
-        for suffix in ("png",):
-            fig.savefig(fig_dir / f"{task}_action_effort.{suffix}", dpi=160)
-        plt.close(fig)
-    return notes
-
-
-def report(output: Path, results: Path, selected: list[str], evaluations: list[dict], predictions: list[dict],
-           physical: list[dict], q: list[dict], comparisons: list[dict], normalized: list[dict], reg: dict, notes: list[str]):
-    reports = output / "reports"
-    reports.mkdir(exist_ok=True)
-    by_task = Counter(r["task"] for r in evaluations if r["metric"] == "episode_return")
-    lines = ["# NS-Gym unified research analysis", "", "Saved records only; no simulator calls or training.", "",
-             f"Canonical episode-return records: {dict(by_task)}. Fixed-bank MSE records: {len(predictions)}. "
-             f"Physical summary records: {len(physical)}. Q diagnostic records: {len(q)}.", "",
-             "Paired return differences use matched evaluation seeds. Confidence intervals resample adaptation-stream means; "
-             "the same Frozen observations are shared across streams. Nominal ×1 family aliases are kept for condition coverage "
-             "but not interpreted as independent physics tasks.", "",
-             ("Reacher Dynamics+Q: completed-gate source included." if reg["reacher"]["dynamics_q_gate"]["passed"] else
-              "Reacher Dynamics+Q: **IN_PROGRESS — EXCLUDED FROM CURRENT REPORT**. Local records do not include final PASS training, prediction and shifted-control evaluations."), ""]
-    for task in selected:
-        lines += [f"## {task}", ""]
-        rr = [r for r in comparisons if r["task"] == task and float(r["severity_multiplier"]) != 1.0]
-        for method in sorted({r["method"] for r in rr}):
-            mm = [r for r in rr if r["method"] == method]
-            lines.append(f"{method}: {len(mm)} physical conditions; mean of condition-level paired effects "
-                         f"{mean(r['mean'] for r in mm):.6g}; improved conditions {sum(r['mean'] > 0 for r in mm)}/{len(mm)}. "
-                         "This average is descriptive across different physical severities.")
-        lines += [""]
-        if SOURCES[task].get("adapter", task) == "halfcheetah":
-            lines += ["The fixed primary checkpoint is 750k (SHA256 " + SOURCES[task]["checkpoint_hash"] + "). "
-                      "A separate nominal-convergence audit provisionally selected 950k during training; "
-                      "that selection is not substituted into this fixed-750k adaptation comparison.", ""]
-        else:
-            record = read_json(results / SOURCES[task]["checkpoint_record"]).get("record", {})
-            nominal = record.get("nominal_performance", {})
-            lines += [f"Selected nominal checkpoint: 670k, SHA256 {record.get('model_sha256', 'unknown')}; "
-                      f"20 validation-seed mean return {nominal.get('mean', 'unavailable')}. "
-                      "These checkpoint-selection seeds are distinct from the held-out adaptation evaluation seeds.", ""]
-        pred = [r for r in predictions if r["task"] == task and r["method"] == "dynamics_only"]
-        if pred:
-            lines += [f"Dynamics-only fixed-bank prediction records: {len(pred)}; "
-                      "prediction error and return are analyzed as separate outcomes.", ""]
-    nominal_path = results / "nominal-convergence-audit-01/nominal_checkpoint_summary.json"
-    if "halfcheetah" in selected and nominal_path.is_file():
-        lines += ["## HalfCheetah nominal validation", ""]
-        for row in read_json(nominal_path):
-            lines.append(f"- Checkpoint {row['transitions']}: return {row['mean_return']:.6g}, sample SD {row['std_return']:.6g}; {row['episodes']} validation seeds.")
-        lines += ["", "## Nominal retention", "",
-                  "Reacher nominal-retention comparisons are in nominal_retention.csv, paired by evaluation seed and summarized by adaptation stream. "
-                  "HalfCheetah shifted-adapted snapshots on nominal physics: NOT_EVALUATED. The k=1 adaptation condition does not replace that evaluation.", ""]
-    lines += ["Q calibration and candidate regret: **NOT_MEASURED** without documented continuation returns.",
-              "Joint encoder-changing latent MSE is excluded from fixed-encoder comparisons.",
-              "Cross-task raw returns and latent MSE are not pooled; task horizons and reward scales differ.", ""]
-    if notes: lines += ["Generation notes: " + "; ".join(notes), ""]
-    (reports / "NSGYM_UNIFIED_RESEARCH_REPORT.md").write_text("\n".join(lines))
-    for task in selected:
-        src = [r for r in comparisons if r["task"] == task]
-        text = [f"# {task} analysis", "", f"Completed paired comparison conditions: {len(src)}.", ""]
-        for r in src:
-            text.append(f"- {r['shift_parameter']} ×{r['severity_multiplier']} {r['method']}: "
-                        f"Δ return {r['mean']:.5g}, {r['improved_streams']}/{r['n_adaptation_streams']} streams improved.")
-        (reports / f"{task.upper()}_ANALYSIS.md").write_text("\n".join(text) + "\n")
-    qlines = ["# Q distribution and planning", "", "Saved categorical Q entropy, JS, scalar Q, Bellman residual, "
-              "candidate overlap and native planning components are in `canonical_q_diagnostics.csv`. "
-              "The original distributional decoder in `scripts/q_planning_core.py` remains authoritative; "
-              "these saved measurements are not re-decoded or treated as Q calibration.", ""]
-    for parameter in ("bthigh_damping", "torso_mass"):
-        for pair in ("F→D", "F→DQ", "F→J"):
-            vals = [numeric(r["value"]) for r in q if r["shift_parameter"] == parameter and
-                    float(r["severity_multiplier"]) == 2 and r["method"] == pair and r["metric"] == "js"]
-            vals = [v for v in vals if v is not None]
-            if vals:
-                qlines.append(f"- {parameter} ×2, {pair} immediate JS: mean across {len(vals)} adaptation streams {mean(vals):.6g}.")
-    qlines += ["", "Candidate overlap is a comparison of model score rankings on a shared proposal bank, "
-               "not ranking accuracy. True continuation returns and planning regret: NOT_MEASURED.", ""]
-    (reports / "Q_DISTRIBUTION_AND_PLANNING.md").write_text("\n".join(qlines))
-    cross = ["# Cross-task comparison", "", "Each condition's paired return effect is divided by the magnitude "
-             "of that condition's Frozen mean return. This is a within-task scale normalization, not a claim that "
-             "equal physical multipliers have equal difficulty. Nominal ×1 aliases are excluded below.", ""]
-    for task in selected:
-        for method in ("dynamics_only", "dynamics_q", "joint"):
-            vals = [r["normalized_improvement"] for r in normalized if r["task"] == task and
-                    r["method"] == method and float(r["severity_multiplier"]) != 1 and
-                    numeric(r["normalized_improvement"]) is not None]
-            if vals:
-                cross.append(f"- {task} {method}: {len(vals)} physical condition labels; "
-                             f"mean normalized paired effect {mean(vals):.5g}, positive {sum(v > 0 for v in vals)}/{len(vals)}.")
-    cross += ["", "Reacher Dynamics+Q: IN_PROGRESS — EXCLUDED FROM CURRENT REPORT. "
-              "Raw returns, latent MSE coordinates and mass interventions are not pooled across tasks.", ""]
-    (reports / "CROSS_TASK_ADAPTATION_COMPARISON.md").write_text("\n".join(cross))
-    (reports / "MISSING_EVIDENCE_AND_LIMITATIONS.md").write_text(
-        "# Missing evidence\n\n- Reacher Dynamics+Q final PASS training, held-out prediction and control: unavailable locally.\n"
-        "- Q Monte Carlo continuation returns, calibration and true candidate regret: NOT_MEASURED.\n"
-        "- Joint fixed-encoder prediction: incompatible because Joint changes the encoder.\n"
-        "- Local HalfCheetah Joint evaluation raw stages are absent; the validated four-method derived comparison is the local source.\n"
-        "- Server process state cannot be inspected from this local macOS workspace.\n")
-
-
-
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--command", choices=("analyze", "inventory", "validate", "cleanup"), default="analyze")
-    parser.add_argument("--task", choices=(*SOURCES, "all"), default="all")
-    parser.add_argument("--methods", default="frozen,dynamics_only,dynamics_q,joint")
-    parser.add_argument("--analysis", default="full", choices=("full", "control", "physical", "latent", "q_distribution", "cross_task", "nominal", "frozen", "adaptation", "planning"))
-    parser.add_argument("--results-root", type=Path, default=DEFAULT_RESULTS)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.json"))
-    parser.add_argument("--task-metrics", type=Path, default=Path(__file__).with_name("task_metrics.json"))
-    parser.add_argument("--no-plots", action="store_true")
-    args = parser.parse_args(argv)
-    results = args.results_root.resolve()
-    output = args.output.resolve()
-    if not results.is_dir(): parser.error(f"Results root absent: {results}")
-    config = read_json(args.config)
-    task_metrics = read_json(args.task_metrics)
-    task_metrics.update(config.get("task_metrics", {}))
-    if config.get("version") != 1: parser.error("Unified analysis config version 1 required")
-    selected = list(SOURCES) if args.task == "all" else [args.task]
-    methods = set(args.methods.split(","))
-    if not methods <= {"frozen", "dynamics_only", "dynamics_q", "joint"}:
-        parser.error("Unknown method in --methods")
-    if args.command == "cleanup":
-        print("DRY RUN ONLY: no files deleted. See generated LOCAL_OUTPUT_CLEANUP.md after analyze.")
-        return
-    if output.exists(): parser.error(f"Output exists; choose a new versioned directory: {output}")
-    if args.command != "inventory":
-        for task in selected:
-            try:
-                available(results, task)
-            except ValueError as exc:
-                parser.error(str(exc))
-            cfg = SOURCES[task]
-            required = ["comparison", "physical"]
-            if cfg.get("adapter", task) == "reacher":
-                required += ["predictions", "episodes", "checkpoint_record"]
-            if cfg.get("q_completion") and read_json(results / cfg["q_completion"]).get("status") == "PASS":
-                required += ["q", "q_divergence", "planning", "ranking"]
-            missing = [cfg[key] for key in required if not (results / cfg[key]).is_file()]
-            if missing:
-                parser.error(f"{task} source files missing: {', '.join(missing)}")
-    if args.command == "validate":
-        print("PASS: completed local source gates; Reacher Dynamics+Q remains excluded")
-        return
-    output.mkdir(parents=True)
-    inv = inventory(results)
-    write_csv(output / "ARTIFACT_INVENTORY.csv", inv,
-              ("path", "stage", "task", "category", "role", "bytes", "completion_status", "sha256", "hash_status"))
-    write_csv(output / "source_inventory.csv", inv,
-              ("path", "stage", "task", "category", "role", "bytes", "completion_status", "sha256", "hash_status"))
-    reg = registry(results, config)
-    (output / "EXPERIMENT_REGISTRY.json").write_text(json.dumps(reg, indent=2, ensure_ascii=False))
-    (output / "ARTIFACT_DEPENDENCIES.json").write_text(json.dumps({
-        task: {"source_files": {k: v for k, v in SOURCES[task].items() if isinstance(v, str) and "/" in v},
-               "derived_from": "historical completed saved records"} for task in selected}, indent=2))
-    if args.command == "inventory":
-        print(f"PASS inventory: {len(inv)} files; {output}")
-        return
-    evaluations, predictions, physical, q = [], [], [], []
-    for task in selected:
-        allowed = (methods | {"frozen"}) - ({"dynamics_q"} if task == "reacher" and not reg[task]["dynamics_q_gate"]["passed"] else set())
-        e, p, ph, qq = ingest(results, task, allowed)
-        evaluations.extend(e); predictions.extend(p); physical.extend(ph); q.extend(qq)
-        if task == "reacher" and "dynamics_q" in methods and reg[task]["dynamics_q_gate"]["passed"]:
-            dq_csv = results / config["reacher_dynamics_q"]["aggregate_per_seed_csv"]
-            de, dp = ingest_completed_reacher_dq(results, dq_csv)
-            evaluations.extend(de); predictions.extend(dp)
-    if args.analysis == "physical":
-        evaluations, predictions, q = [], [], []
-    elif args.analysis == "control":
-        predictions, physical, q = [], [], []
-    elif args.analysis == "q_distribution":
-        evaluations, predictions, physical = [], [], []
-    elif args.analysis == "latent":
-        physical, q = [], []
-    elif args.analysis == "cross_task":
-        physical, q = [], []
-    if args.analysis == "nominal":
-        evaluations = [r for r in evaluations if r['kind'] == 'nominal' or float(r['severity_multiplier']) == 1]
-        predictions, physical, q = [], [], []
-    elif args.analysis == "frozen":
-        evaluations = [r for r in evaluations if r['method'] == 'frozen']
-        predictions = [r for r in predictions if r['method'] == 'frozen']
-        q = []
-    elif args.analysis == "planning":
-        evaluations, predictions, physical = [], [], []
-        q = [r for r in q if r['kind'] in ('planning', 'ranking')]
-    write_csv(output / "canonical_evaluations.csv", evaluations, COMMON)
-    write_csv(output / "canonical_predictions.csv", predictions, COMMON)
-    write_csv(output / "canonical_physical_probes.csv", physical, COMMON)
-    write_csv(output / "canonical_q_diagnostics.csv", q, COMMON)
-    stream, comparisons = paired_improvements(evaluations, methods)
-    _, retention = paired_improvements(evaluations, methods, kind="nominal")
-    write_csv(output / "nominal_retention.csv", retention, COMPARISON_FIELDS)
-    prediction_pairs = prediction_improvements(predictions)
-    write_csv(output / "per_adaptation_stream.csv", stream,
-              ("task", "shift_family", "shift_parameter", "severity_multiplier", "adaptation_seed", "method",
-               "evaluation_seeds", "mean_return_improvement"))
-    write_csv(output / "comparisons.csv", comparisons, COMPARISON_FIELDS)
-    write_csv(output / "prediction_improvements.csv", prediction_pairs,
-              ("task", "shift_family", "shift_parameter", "severity_multiplier", "adaptation_seed",
-               "evaluation_seed", "method", "frozen_mse", "adapted_mse", "mse_improvement"))
-    conditions = sorted({(r["task"], r["shift_family"], r["shift_parameter"], r["severity_multiplier"], r["kind"])
-                         for r in evaluations})
-    write_csv(output / "canonical_conditions.csv",
-              [dict(zip(("task", "shift_family", "shift_parameter", "severity_multiplier", "kind"), x)) for x in conditions],
-              ("task", "shift_family", "shift_parameter", "severity_multiplier", "kind"))
-    prediction_control = prediction_control_pairs(stream, prediction_pairs)
-    normalized = normalized_comparisons(evaluations, comparisons)
-    write_csv(output / "prediction_control_pairs.csv", prediction_control,
-              ("task", "shift_family", "shift_parameter", "severity_multiplier", "adaptation_seed",
-               "method", "evaluation_seeds", "mean_return_improvement", "mse_improvement", "prediction_seeds", "quadrant"))
-    write_csv(output / "cross_task_normalized.csv", normalized,
-              COMPARISON_FIELDS + ("frozen_mean_return", "normalized_improvement", "normalization"))
-    notes = [] if args.no_plots else plot(output, evaluations, predictions, comparisons, physical, q, prediction_control, normalized, task_metrics)
-    report(output, results, selected, evaluations, predictions, physical, q, comparisons, normalized, reg, notes)
-    (output / "validation").mkdir()
-    (output / "validation/completeness.json").write_text(json.dumps({
-        "status": "PASS", "evaluation_records": len(evaluations), "prediction_records": len(predictions),
-        "comparison_conditions": len(comparisons),
-        "reacher_dynamics_q_included": bool(reg["reacher"]["dynamics_q_gate"]["passed"] and "reacher" in selected and "dynamics_q" in methods)}, indent=2))
-    (output / "reports/EXPERIMENT_PROVENANCE.md").write_text(
-        "# Provenance\n\nCanonical rows contain relative source file paths, SHA256 hashes and source row numbers. "
-        "See `manifest.json`, `ARTIFACT_INVENTORY.csv` and `EXPERIMENT_REGISTRY.json`.\n")
-    from .maintenance import cleanup_preview, migration_inventory
-    cleanup_preview(results, output)
-    migration_inventory(output)
-    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=WORKSPACE,
-                              capture_output=True, text=True, check=False).stdout.strip()
-    (output / "manifest.json").write_text(json.dumps({
-        "status": "PASS", "analysis": args.analysis, "tasks": selected, "methods": sorted(methods),
-        "results_root": str(results), "project_root": str(PROJECT), "git_revision": revision,
-        "analysis_config_sha256": sha256(args.config), "task_metrics_sha256": sha256(args.task_metrics),
-        "python": platform.python_version(), "source_records": len(evaluations), "source_inventory_files": len(inv),
-        "no_training_or_simulator": True}, indent=2))
-    print(f"PASS: {len(evaluations)} evaluations, {len(predictions)} predictions, {len(comparisons)} paired conditions; {output}")
-
+def run(args):
+    config=json.loads(args.config.read_text());root=(args.results_root or DEFAULT_RESULTS).resolve();out=args.output.resolve()
+    if not root.is_dir():raise ValueError(f'Results root absent: {root}')
+    if out.exists():raise ValueError(f'Output exists; choose a new directory: {out}')
+    code_hashes={p.name:sha256(p) for p in sorted(Path(__file__).parent.glob('*.py'))}
+    catalog=Catalog(root,config['tasks'],out)
+    filters={k:set(str(getattr(args,k)).split(',')) for k in ('task','shift_family','severity','schedule') if getattr(args,k,None) not in ('all',None,'')}
+    if args.methods!='all':filters['method']=set(args.methods.split(','))|{'frozen','physical_probe'}
+    if 'severity' in filters:filters['severity']={format(float(x),'.12g') for x in filters['severity']}
+    filters['analysis']=args.analysis if args.operation in ('full','validate') else args.operation
+    rec=collect(catalog,filters) if args.operation not in ('discover','inventory') else None
+    out.mkdir(parents=True)
+    (out/'manifest.json').write_text(json.dumps(dict(pipeline='nsgym_raw_to_report',no_training_or_simulator=True,results_root=str(root),operation=args.operation,config_version=config['version'],python=platform.python_version()),indent=2))
+    table(out,'RAW_SOURCE_INVENTORY.csv',catalog.inventory)
+    table(out,'DISCOVERED_EXPERIMENTS.csv',catalog.experiments)
+    table(out,'EXCLUDED_SOURCES.csv',catalog.excluded)
+    if rec is None:
+        (out/'completion.json').write_text(json.dumps(dict(status='PASS',files=len(catalog.files),experiments=len(catalog.experiments)),indent=2));return
+    # Analysis selection filters measurements without changing discovery/completion validation.
+    requested=getattr(args,'analysis','full') if args.operation in ('full','validate') else args.operation
+    kinds={'nominal':{'nominal_validation'},'physical':{'physical'},'q_distribution':{'q_immediate','q_divergence'},'planning':{'q_terminal','q_planning','q_ranking','q_counterfactual'},'adaptation':{'shifted','fixed_bank','nominal','joint_self_consistency'},'frozen':{'shifted','fixed_bank'},'cross_task':{'shifted','fixed_bank'}}
+    if requested in kinds:rec.rows=[r for r in rec.rows if r['kind'] in kinds[requested] and (requested!='frozen' or r['method']=='frozen')]
+    summaries=summarize_records(rec.rows);streams,comparisons=paired_improvements(rec.rows)
+    contrasts=method_contrasts(rec.rows)
+    nominal_streams,nominal_comparisons=paired_improvements(rec.rows,kind='nominal')
+    pred=prediction_improvements(rec.rows);coupling=prediction_control_pairs(streams,pred)
+    cov=coverage(catalog,rec.rows)
+    costs=[]
+    for training in catalog.training.values():
+        if training['status']!='PASS':continue
+        d=training['done']
+        costs.append(dict(task=training['task'],method=training['method'],**{k:v for k,v in training['identity'].items() if k!='method'},
+            environment_transitions=first(d,'transitions','adaptation_transitions'),model_update_calls=first(d,'updates','gradient_update_steps'),
+            dynamics_steps=d.get('dynamics_steps',''),q_steps=d.get('q_steps',''),optimizer_step_calls=first(d,'optimizer_step_calls','total_optimizer_steps'),
+            wall_seconds=first(d,'wall_seconds','training_wall_seconds'),source_path=training['path']))
+    table(out,'ADAPTATION_COSTS.csv',costs)
+    for name,data in [('cross_task_normalized.csv',normalized_comparisons(rec.rows,comparisons)),('adapted_method_contrasts.csv',contrasts),('canonical_records.csv',rec.rows),('statistical_summary.csv',summaries),('comparisons.csv',comparisons),('per_adaptation_stream.csv',streams),('nominal_retention.csv',nominal_comparisons),('prediction_improvements.csv',pred),('prediction_control_pairs.csv',coupling),('TRAINING_DIAGNOSTICS.csv',rec.training),('SOURCE_COVERAGE.csv',cov),('DUPLICATE_RECORDS.csv',rec.duplicates),('INVALID_SOURCES.csv',catalog.issues)]:table(out,name,data)
+    if not args.no_plots:figures(out,summaries,comparisons,coupling)
+    from .regression import validate
+    result=validate(catalog,rec,out,summaries,comparisons,args.unified_output)
+    result['missing_metric_families']=sum(r['evidence']=='MISSING' for r in cov)
+    changed=[catalog.rel(p) for p,stat in catalog.initial_stats.items() if not p.is_file() or (p.stat().st_size,p.stat().st_mtime_ns)!=stat]
+    for p in changed:catalog.issues.append(dict(path=p,status='INVALID',reason='Source changed during read-only analysis'))
+    for metadata_path in catalog.json:catalog.digest(metadata_path)
+    provenance=dict(source_root=str(root),analysis_config_sha256=sha256(args.config),analysis_files=code_hashes,files={catalog.rel(p):h for p,h in sorted(catalog.hashes.items())},
+        lineage='canonical_records.csv:source_record_id and source_sha256; statistical_summary.csv/comparisons.csv:source_records',
+        duplicate_records=len(rec.duplicates),raw_files_unchanged=not changed,changed_sources=changed)
+    (out/'SOURCE_PROVENANCE.json').write_text(json.dumps(provenance,indent=2))
+    report(out,catalog,rec,summaries,comparisons,cov,result)
+    status='PARTIAL' if catalog.issues or result['counts'].get('FAIL',0) else 'PASS_WITH_COVERAGE_GAPS' if any(r['evidence'] in ('MISSING','DERIVED_ONLY') for r in cov) else 'PASS'
+    done=dict(status=status,records=len(rec.rows),paired_conditions=len(comparisons),regression=result,invalid_sources=len(catalog.issues),excluded_sources=len(catalog.excluded),duplicates=len(rec.duplicates))
+    (out/'completion.json').write_text(json.dumps(done,indent=2))
+    print(json.dumps(done,indent=2),flush=True)
+    if result['counts'].get('FAIL',0):raise SystemExit(1)

@@ -6,7 +6,7 @@ import sys
 from .schema import read_required
 from . import sources
 
-OPERATIONS=('inventory','validate','nominal','physical','frozen','adaptation','q_distribution',
+OPERATIONS=('discover','inventory','validate','nominal','physical','frozen','adaptation','q_distribution',
             'planning','cross_task','full','cleanup_preview')
 FORMATS={'ttt':'ttt','budgets':'budgets','severity':'physical','reacher':'reacher','diagnostics':'diagnostics'}
 
@@ -25,6 +25,10 @@ def main(argv=None):
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--config',type=Path,default=Path(__file__).with_name('config.json'))
     parser.add_argument('--no-plots',action='store_true')
+    parser.add_argument('--shift-family',default='all')
+    parser.add_argument('--severity',default='all')
+    parser.add_argument('--schedule',default='all')
+    parser.add_argument('--analysis',default='full',choices=OPERATIONS)
     parser.add_argument('--unified-output',type=Path,help='Also regress an existing unified comparisons.csv against original condition summaries')
     if '--' in argv:
         split=argv.index('--');adapter_args=argv[split+1:];argv=argv[:split]
@@ -33,9 +37,9 @@ def main(argv=None):
     if unknown and not a.format:parser.error('Unrecognized arguments: '+str(unknown))
     adapter_args=unknown+adapter_args
     config=read_required(a.config)
-    sources.SOURCES.clear();sources.SOURCES.update(config['sources'])
+    sources.SOURCES.clear();sources.SOURCES.update(config['tasks'])
     if a.task!='all' and a.task not in sources.SOURCES:parser.error('Task not registered in config.sources')
-    if not set(a.methods.split(',')) <= set(config['methods']):parser.error('Unregistered method')
+    if a.methods != 'all' and not set(a.methods.split(',')) <= set(config['methods']):parser.error('Unregistered method')
     if a.format:
         module=importlib.import_module('.'+FORMATS[a.format],__package__)
         contracts=config.get('historical_adapters', {})
@@ -53,20 +57,9 @@ def main(argv=None):
         return
     if adapter_args:parser.error('Arguments after -- require --format')
     from . import engine
-    results=(a.results_root or engine.DEFAULT_RESULTS).resolve()
-    if a.operation=='validate':
-        from .regression import run
-        if not run(results,a.output.resolve(),a.unified_output):raise SystemExit(1)
-        return
     if a.operation=='cleanup_preview':
-        from .maintenance import cleanup_preview
-        a.output.mkdir(parents=True,exist_ok=False);cleanup_preview(results,a.output);return
-    arguments=['--results-root',str(results),'--output',str(a.output),'--task',a.task,
-               '--methods',a.methods,'--config',str(a.config)]
-    if a.no_plots:arguments+=['--no-plots']
-    if a.operation=='inventory':arguments+=['--command','inventory']
-    else:arguments+=['--analysis',a.operation]
-    engine.main(arguments)
+        raise ValueError('Cleanup is not part of the read-only raw-to-report pipeline')
+    engine.run(a)
 
 
 if __name__=='__main__':main()
