@@ -24,13 +24,13 @@ The final full original-data run (`unified-analysis/raw-to-report-v2`) produced:
 - 61,742 duplicate scalar records excluded. This is not a count of independent episodes.
 - Source immutability passed; 6,562 consumed source/provenance files fingerprinted.
 
-Fifteen unit/integration tests passed, including a newly introduced run ID contributing to the report without a config edit, automatic Reacher DQ completion gating, relocated paths, snapshot tampering, seed mismatch and duplicate exclusion. All requested CLI operations were exercised on temporary fixtures; the full original-data command exercises both tasks and Q/planning end to end. Only temporary fixtures were removed.
+Sixteen unit/integration tests passed, including a newly introduced run ID contributing to the report without a config edit, automatic Reacher DQ completion gating, a running partial held-out batch and live log, relocated paths, snapshot tampering, seed mismatch and duplicate exclusion. All requested CLI operations were exercised on temporary fixtures; the full original-data command exercises both tasks and Q/planning end to end. Only temporary fixtures were removed.
 
 Q arrays were independently decoded with the existing TD-MPC2 categorical math. Original GPU float32 per-observation values remain the statistical inputs after verification. Six cancellation-sensitive differences outside direct tolerance but within a recorded propagated float32 bound are documented separately, not called exact matches. Bellman targets were not saved; residual/CE remain DERIVED_ONLY.
 
 Current scientific coverage is `PASS_WITH_COVERAGE_GAPS`: HalfCheetah shifted-adapted nominal retention and Reacher DQ held-out prediction/control are absent. These missing evaluations were not fabricated or launched. A new task/schema/procedure still needs explicit semantic adapter support.
 
-The final presentation revision uses matching CI colors, source-backed nominal parameter labels and explicit DERIVED_ONLY figure labels. The final run passed with the counts above; canonical tables and comparisons were byte-identical to v1. All final Python code fingerprints match SOURCE_PROVENANCE.json. See the output completion and regression records for the evidence.
+The presentation revision uses matching CI colors, source-backed nominal parameter labels and explicit DERIVED_ONLY figure labels. The local v2 run passed with the counts above; canonical tables and comparisons were byte-identical to v1. After a later server run exposed a still-running Reacher Dynamics+Q control batch, source gating was further corrected: its partial children are now excluded as INCOMPLETE, and changes to an unconsumed live log do not invalidate the analysis. The server must rerun with this updated code in a new output directory. See each output's completion and regression records for its actual status.
 
 ## Preserved scope
 

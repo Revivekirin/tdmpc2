@@ -92,9 +92,30 @@ class RawPipelineTests(unittest.TestCase):
             write_json(root/'arbitrary-run/prediction/completion.json',dict(status='PARTIAL'))
             rec=collect(self.catalog(root))
             self.assertFalse(any(r['method']=='dynamics_q' for r in rec.rows))
+            self.assertFalse(rec.c.issues)
             write_json(root/'arbitrary-run/prediction/completion.json',dict(status='PASS'))
             rec=collect(self.catalog(root))
             self.assertTrue(any(r['method']=='dynamics_q' for r in rec.rows))
+    def test_running_dq_batch_and_unconsumed_log_are_not_source_errors(self):
+        from unittest.mock import patch
+        from . import engine
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'results';fixture(root,method='reacher_dynamics_q_v1',task='reacher')
+            write_json(root/'arbitrary-run/shifted/completion.json',dict(status='PARTIAL'))
+            log=root/'arbitrary-run/postrun.log';log.write_text('running\n')
+            original=engine.collect
+            def with_live_log(catalog,filters):
+                records=original(catalog,filters)
+                log.write_text('running\nstill running\n')
+                return records
+            output=Path(tmp)/'report'
+            with patch.object(engine,'collect',side_effect=with_live_log):
+                main(['full','--source-root',str(root),'--output',str(output),'--no-plots'])
+            done=json.loads((output/'completion.json').read_text())
+            self.assertNotEqual(done['status'],'PARTIAL')
+            self.assertEqual(done['invalid_sources'],0)
+            excluded=list(csv.DictReader((output/'EXCLUDED_SOURCES.csv').open()))
+            self.assertTrue(any('held-out batch not complete' in r['reason'] for r in excluded))
     def test_snapshot_tampering_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);train=fixture(root)

@@ -108,7 +108,12 @@ class Records:
         for key,rr in dq.items():
             pred={r['evaluation_seed'] for r in rr if r['kind']=='fixed_bank' and r['metric']=='latent_mse'}
             ctrl={r['evaluation_seed'] for r in rr if r['kind']=='shifted' and r['metric']=='episode_return'}
-            if not pred or pred!=ctrl or any(not r['training_path'] for r in rr):
+            if not pred or not ctrl:
+                # A running held-out batch can have completed children in only
+                # one mode. Its partial results are pending, not invalid data.
+                for r in rr:excluded.add(id(r))
+                self.c.excluded.append(dict(path=rr[0]['source_run_id'],status='INCOMPLETE',reason='Dynamics+Q awaits both completed held-out batches'))
+            elif pred!=ctrl or any(not r['training_path'] for r in rr):
                 for r in rr:excluded.add(id(r))
                 self.c.issues.append(dict(path=rr[0]['source_run_id'],status='MISSING',reason='Dynamics+Q needs completed training and matched prediction/control seeds for this snapshot'))
         self.rows=[r for r in self.rows if id(r) not in excluded]
@@ -357,6 +362,11 @@ def collect(catalog,filters=None):
                 if r['source_path']==catalog.rel(p):r['completion_status']='INCOMPLETE_DESCRIPTIVE_ONLY'
         if status!='PASS':
             catalog.excluded.append(dict(path=catalog.rel(p),status=status,reason=reason));continue
+        if adapter in (control,prediction) and METHODS.get((meta.get('identity') or {}).get('method'))=='dynamics_q':
+            batch=catalog.json.get(p.parent.parent/'completion.json',{})
+            if not passed(batch):
+                catalog.excluded.append(dict(path=catalog.rel(p),status='INCOMPLETE',reason='Dynamics+Q held-out batch not complete'))
+                continue
         selected.append((p,adapter,meta,done))
     # Independent baseline records first, then adapted evaluation references.
     selected.sort(key=lambda x:(x[1] not in (frozen,nominal),str(x[0])))

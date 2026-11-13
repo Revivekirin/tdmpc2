@@ -25,6 +25,7 @@ python -m experiments.nsgym.analysis planning --source-root "$RESULTS" --output 
 ```
 
 After a newly completed supported method/run is present, run the same command with a new output name. Reacher Dynamics+Q requires matching completed training/snapshot, prediction and shifted control records; training alone does not enable it.
+While a held-out Dynamics+Q batch is running, its completed child files remain excluded with `INCOMPLETE` provenance. They enter the comparison only after both parent batches pass with matching seeds. Changes to an unrelated live log do not invalidate already consumed source files.
 
 ```bash
 python -m experiments.nsgym.analysis full --source-root "$RESULTS" --output "${OUT}-next"
