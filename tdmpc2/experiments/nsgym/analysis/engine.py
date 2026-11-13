@@ -382,14 +382,28 @@ def main(argv=None):
     methods = set(args.methods.split(","))
     if not methods <= {"frozen", "dynamics_only", "dynamics_q", "joint"}:
         parser.error("Unknown method in --methods")
-    if args.command == "validate":
-        for task in selected: available(results, task)
-        print("PASS: completed local source gates; Reacher Dynamics+Q remains excluded")
-        return
     if args.command == "cleanup":
         print("DRY RUN ONLY: no files deleted. See generated LOCAL_OUTPUT_CLEANUP.md after analyze.")
         return
     if output.exists(): parser.error(f"Output exists; choose a new versioned directory: {output}")
+    if args.command != "inventory":
+        for task in selected:
+            try:
+                available(results, task)
+            except ValueError as exc:
+                parser.error(str(exc))
+            cfg = SOURCES[task]
+            required = ["comparison", "physical"]
+            if cfg.get("adapter", task) == "reacher":
+                required += ["predictions", "episodes", "checkpoint_record"]
+            if cfg.get("q_completion") and read_json(results / cfg["q_completion"]).get("status") == "PASS":
+                required += ["q", "q_divergence", "planning", "ranking"]
+            missing = [cfg[key] for key in required if not (results / cfg[key]).is_file()]
+            if missing:
+                parser.error(f"{task} source files missing: {', '.join(missing)}")
+    if args.command == "validate":
+        print("PASS: completed local source gates; Reacher Dynamics+Q remains excluded")
+        return
     output.mkdir(parents=True)
     inv = inventory(results)
     write_csv(output / "ARTIFACT_INVENTORY.csv", inv,
@@ -482,5 +496,4 @@ def main(argv=None):
         "python": platform.python_version(), "source_records": len(evaluations), "source_inventory_files": len(inv),
         "no_training_or_simulator": True}, indent=2))
     print(f"PASS: {len(evaluations)} evaluations, {len(predictions)} predictions, {len(comparisons)} paired conditions; {output}")
-
 
