@@ -101,6 +101,12 @@ class RawPipelineTests(unittest.TestCase):
         from . import engine
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/'results';fixture(root,method='reacher_dynamics_q_v1',task='reacher')
+            # Some real held-out exports identify the method through the
+            # referenced training snapshot, not a child manifest identity.
+            for mode in ('shifted','prediction'):
+                manifest=root/'arbitrary-run'/mode/'condition/manifest.json'
+                data=json.loads(manifest.read_text());data.pop('identity')
+                write_json(manifest,data)
             write_json(root/'arbitrary-run/shifted/completion.json',dict(status='PARTIAL'))
             log=root/'arbitrary-run/postrun.log';log.write_text('running\n')
             original=engine.collect

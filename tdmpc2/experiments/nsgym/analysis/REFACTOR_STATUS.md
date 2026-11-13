@@ -30,7 +30,7 @@ Q arrays were independently decoded with the existing TD-MPC2 categorical math. 
 
 Current scientific coverage is `PASS_WITH_COVERAGE_GAPS`: HalfCheetah shifted-adapted nominal retention and Reacher DQ held-out prediction/control are absent. These missing evaluations were not fabricated or launched. A new task/schema/procedure still needs explicit semantic adapter support.
 
-The presentation revision uses matching CI colors, source-backed nominal parameter labels and explicit DERIVED_ONLY figure labels. The local v2 run passed with the counts above; canonical tables and comparisons were byte-identical to v1. After a later server run exposed a still-running Reacher Dynamics+Q control batch, source gating was further corrected: its partial children are now excluded as INCOMPLETE, and changes to an unconsumed live log do not invalidate the analysis. The server must rerun with this updated code in a new output directory. See each output's completion and regression records for its actual status.
+The presentation revision uses matching CI colors, source-backed nominal parameter labels and explicit DERIVED_ONLY figure labels. The local v2 run passed with the counts above; canonical tables and comparisons were byte-identical to v1. A later server run exposed a still-running Reacher Dynamics+Q control batch. Source gating now identifies DQ through its completed training snapshot, even when the held-out child manifest has no method identity; partial children are excluded as INCOMPLETE. Unconsumed live `.log` files do not invalidate the analysis. The server must rerun with this updated code in a new output directory. See each output's completion and regression records for its actual status.
 
 ## Preserved scope
 

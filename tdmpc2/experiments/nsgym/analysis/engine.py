@@ -165,7 +165,7 @@ def run(args):
     for metadata_path in catalog.json:catalog.digest(metadata_path)
     # A live run may append to an unrelated log while analysis is running.
     # Only files actually consumed or used as provenance affect this report.
-    changed=[catalog.rel(p) for p in catalog.hashes if not p.is_file() or (p.stat().st_size,p.stat().st_mtime_ns)!=catalog.initial_stats[p]]
+    changed=[catalog.rel(p) for p in catalog.hashes if p.suffix!='.log' and (not p.is_file() or (p.stat().st_size,p.stat().st_mtime_ns)!=catalog.initial_stats[p])]
     for p in changed:catalog.issues.append(dict(path=p,status='INVALID',reason='Source changed during read-only analysis'))
     provenance=dict(source_root=str(root),analysis_config_sha256=sha256(args.config),analysis_files=code_hashes,files={catalog.rel(p):h for p,h in sorted(catalog.hashes.items())},
         lineage='canonical_records.csv:source_record_id and source_sha256; statistical_summary.csv/comparisons.csv:source_records',

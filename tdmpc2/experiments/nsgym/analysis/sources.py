@@ -362,7 +362,8 @@ def collect(catalog,filters=None):
                 if r['source_path']==catalog.rel(p):r['completion_status']='INCOMPLETE_DESCRIPTIVE_ONLY'
         if status!='PASS':
             catalog.excluded.append(dict(path=catalog.rel(p),status=status,reason=reason));continue
-        if adapter in (control,prediction) and METHODS.get((meta.get('identity') or {}).get('method'))=='dynamics_q':
+        training=catalog.training_for(meta,done) if adapter in (control,prediction) else None
+        if training and training['method']=='dynamics_q':
             batch=catalog.json.get(p.parent.parent/'completion.json',{})
             if not passed(batch):
                 catalog.excluded.append(dict(path=catalog.rel(p),status='INCOMPLETE',reason='Dynamics+Q held-out batch not complete'))
