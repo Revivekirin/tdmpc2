@@ -82,6 +82,20 @@ python "$RUNNER" aggregate --config "$CFG" --inputs "$OUT/probe" "$OUT/frozen" "
 
 Reports retain all 24 conditions and flag missing/incomplete ones. Do not include overlapping copies of evaluation directories. Aggregation uses evaluation-seed means within adaptation replicas and then uncertainty over independent adaptation replicas. AUC and best intermediate do not replace the final predeclared-budget primary outcome.
 
+For the completed server runs, the existing `plot_results.py` analysis CLI also compares the final 10k Dynamics-only and Full Joint RL results. It first invokes the unchanged Reacher aggregation for the Frozen and Dynamics-only plots, then reads the Joint held-out evaluation once. Use only the consolidated Dynamics-only control directory; do not also pass the interrupted `control-home-01` or Joint child directories. This is read-only analysis and creates a new output directory. The existing `analyze_reacher_pipeline.py` stays byte-identical to the version hashed by the completed Frozen gate.
+
+```bash
+cd /home/jhkim/repos/tdmpc2
+OUT=/home/jhkim/repos/tdmpc2/results/nsgym/reacher/preview-v1
+python experiments/nsgym/scripts/plot_results.py --kind reacher-comparison \
+  --inputs "$OUT/probe-home-01" "$OUT/frozen-home-01" \
+    "$OUT/prediction-home-01" "$OUT/control-home-02-resumed" \
+    "$OUT/full-joint-home-01/evaluation-full-01" \
+  --output "$OUT/analysis-comparison-home-01"
+```
+
+The comparison writes paired held-out seed rows, per-condition summaries, shifted and nominal-return figures, and the Joint-minus-Dynamics-only figure. Joint RL changes the encoder and policy as well as Q, so its latent MSE is not put on the fixed-encoder Dynamics-only error axis. A Joint-minus-Dynamics-only return difference is a procedure comparison, not an isolated estimate of Q adaptation.
+
 Every stage supports `--dry-run`, which prints arguments, full config, seeds, budgets and source/version manifest without loading checkpoint/CUDA or stepping physics. Seed sets and algorithm controls are specified by `--config`; no implicit seed substitution occurs.
 
 ```bash

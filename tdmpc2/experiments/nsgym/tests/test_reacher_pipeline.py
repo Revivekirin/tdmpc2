@@ -120,4 +120,50 @@ class PipelineTests(unittest.TestCase):
         rows=[dict(family='D0',severity=1,seed=1,error=0)]*100+[dict(family='D0',severity=1,seed=2,error=10)]
         stat=summary(rows,'error')[0];self.assertEqual(stat['n'],2);self.assertEqual(stat['mean'],5)
 
+    def test_complete_joint_comparison_uses_adaptation_streams(self):
+        from plot_results import compare_methods
+        c=dict(self.c,families={'D0':'joint0_damping'},severities=[1.,1.5],
+               adaptation_seeds=[11,12,13],evaluation_seeds=[21,22])
+        frozen_root=self.root/'frozen';joint_root=self.root/'joint';report=self.root/'report'
+        for path in (frozen_root,joint_root,report):path.mkdir()
+        frozen=[];dynamic=[];prediction=[];joint=[];joint_prediction=[]
+        for severity in c['severities']:
+            for seed in c['evaluation_seeds']:
+                frozen.append(dict(family='D0',severity=severity,seed=seed,
+                    episode_return=10+seed,nominal_parameter=1.,distance_final=1.,action_abs=.2))
+            for adaptation_seed in c['adaptation_seeds']:
+                for seed in c['evaluation_seeds']:
+                    prediction.append(dict(family='D0',severity=severity,adaptation_seed=adaptation_seed,
+                                           seed=seed,budget=10000,method='decision',latent_mse=.1))
+                    joint_prediction.append(dict(family='D0',severity=severity,adaptation_seed=adaptation_seed,
+                                                 seed=seed,latent_mse=.2))
+                    for kind in ('shifted','nominal'):
+                        baseline=10+seed
+                        dynamic.append(dict(family='D0',severity=severity,adaptation_seed=adaptation_seed,
+                            seed=seed,budget=10000,method='decision',kind=kind,episode_return=baseline+adaptation_seed,
+                            distance_final=.8,action_abs=.3))
+                        joint.append(dict(family='D0',severity=severity,adaptation_seed=adaptation_seed,
+                            seed=seed,kind=kind,episode_return=baseline+adaptation_seed+2,
+                            frozen_episode_return=baseline,paired_return_difference=adaptation_seed+2,
+                            distance_final=.6,action_abs=.4))
+        r.table(frozen_root/'reacher_frozen_severity.csv',frozen)
+        r.table(joint_root/'reacher_joint_control.csv',joint)
+        r.table(joint_root/'reacher_joint_prediction.csv',joint_prediction)
+        r.write(joint_root/'completion.json',dict(status='PASS',snapshots=6,control_rows=24,prediction_rows=12))
+        compare_methods(frozen_root,dynamic,prediction,joint_root,report,c)
+        paired=r.csvread(report/'reacher_method_paired_seeds.csv')
+        self.assertEqual(len(paired),24)
+        self.assertTrue(all(float(x['joint_minus_dynamics'])==2 for x in paired))
+        summary=r.csvread(report/'reacher_method_comparison_summary.csv')
+        result=next(x for x in summary if x['metric']=='joint_minus_dynamics' and x['kind']=='shifted')
+        self.assertEqual(result['unit'],'adaptation_seed');self.assertEqual(int(result['n']),3)
+        self.assertEqual(float(result['mean']),2)
+        self.assertTrue((report/'reacher_shifted_method_return.png').is_file())
+        self.assertTrue((report/'reacher_shifted_method_action_abs.png').is_file())
+        path=joint_root/'reacher_joint_control.csv'
+        first_data_row=path.read_text().splitlines()[1]
+        with path.open('a') as file:file.write(first_data_row+'\n')
+        with self.assertRaisesRegex(ValueError,'Duplicate evaluation identity'):
+            compare_methods(frozen_root,dynamic,prediction,joint_root,report,c)
+
 if __name__=='__main__':unittest.main()
