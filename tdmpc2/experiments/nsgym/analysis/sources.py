@@ -139,6 +139,8 @@ def _validate_eval(rec,p,meta,done,rows):
     if snapshot and expected_hash and c.digest(snapshot)!=expected_hash:raise ValueError('Snapshot hash mismatch')
     training=c.training_for(meta,done)
     if training and training['status']!='PASS':raise ValueError('Adaptation training is not complete')
+    if training and training['method']=='dynamics_q' and not c.training_batch_complete(training):
+        raise ValueError('Dynamics+Q training batch is not complete')
     if training and expected_hash and not snapshot:
         choices=list((c.root/training['path']).glob('snapshot-*.pt'))
         budget=first(training['done'],'transitions','adaptation_transitions',default=0)
@@ -364,6 +366,9 @@ def collect(catalog,filters=None):
             catalog.excluded.append(dict(path=catalog.rel(p),status=status,reason=reason));continue
         training=catalog.training_for(meta,done) if adapter in (control,prediction) else None
         if training and training['method']=='dynamics_q':
+            if not catalog.training_batch_complete(training):
+                catalog.excluded.append(dict(path=catalog.rel(p),status='INCOMPLETE',reason='Dynamics+Q training batch not complete'))
+                continue
             batch=catalog.json.get(p.parent.parent/'completion.json',{})
             if not passed(batch):
                 catalog.excluded.append(dict(path=catalog.rel(p),status='INCOMPLETE',reason='Dynamics+Q held-out batch not complete'))

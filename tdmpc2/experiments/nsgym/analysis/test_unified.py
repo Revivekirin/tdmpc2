@@ -27,6 +27,8 @@ def fixture(root,seed=1,name='arbitrary-run',method='decision',task='halfcheetah
     snapshot=train/'snapshot-0003000.pt';snapshot.write_bytes(f'fixture {seed}'.encode());h=hashlib.sha256(snapshot.read_bytes()).hexdigest()
     write_json(train/'manifest.json',dict(identity=identity,configuration=config,checkpoint_sha256=checkpoint))
     write_json(train/'completion.json',dict(status='PASS',transitions=3000,updates=118,snapshot_sha256=h))
+    if method in ('dynamics_q','reacher_dynamics_q_v1'):
+        write_json(train.parent/'completion.json',dict(status='PASS',completed=['training'],expected=1))
     base=dict(task=task,checkpoint_sha256=checkpoint,configuration=config)
     frozen=root/'shared-baseline'
     write_json(frozen/'manifest.json',base);write_json(frozen/'completion.json',dict(status='PASS'))
@@ -122,6 +124,14 @@ class RawPipelineTests(unittest.TestCase):
             self.assertEqual(done['invalid_sources'],0)
             excluded=list(csv.DictReader((output/'EXCLUDED_SOURCES.csv').open()))
             self.assertTrue(any('held-out batch not complete' in r['reason'] for r in excluded))
+    def test_dq_leaf_pass_does_not_override_incomplete_training_batch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);fixture(root,method='reacher_dynamics_q_v1',task='reacher')
+            write_json(root/'arbitrary-run/completion.json',dict(status='PARTIAL',completed=['training'],expected=1))
+            rec=collect(self.catalog(root))
+            self.assertFalse(any(r['method']=='dynamics_q' for r in rec.rows))
+            self.assertFalse(rec.c.issues)
+            self.assertTrue(any('training batch not complete' in r['reason'] for r in rec.c.excluded))
     def test_snapshot_tampering_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);train=fixture(root)

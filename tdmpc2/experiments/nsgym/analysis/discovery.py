@@ -185,6 +185,12 @@ class Catalog:
             matches=[v for v in self.training.values() if v['done'].get('snapshot_sha256')==digest]
             if matches and len({json.dumps(v['identity'],sort_keys=True) for v in matches})==1:return sorted(matches,key=lambda v:v['path'])[0]
         return None
+    def training_batch_complete(self,training):
+        if not training or training['status']!='PASS':return False
+        stream=self.root/training['path']
+        batch=self.json.get(stream.parent/'completion.json',{})
+        completed=batch.get('completed',[]) if isinstance(batch,dict) else []
+        return passed(batch) and stream.name in completed and batch.get('expected')==len(set(completed))
     def table(self,p):
         with p.open(newline='') as stream:yield from csv.DictReader(stream)
     def add_issue(self,p,reason,status='INVALID'):
