@@ -14,7 +14,7 @@ RUNS="$OUT/runs"
 test -f "$RUNNER" && test -f "$CHECKPOINT/model.pt"
 sha256sum "$CHECKPOINT/model.pt"
 python "$RUNNER" --help
-python experiments/nsgym/scripts/analyze_dynamics_only_ttt.py --help
+python -m experiments.nsgym.analysis adaptation --format budgets --help
 python "$RUNNER" run --checkpoint "$CHECKPOINT" --schedule fixed --output "$OUT/fixed-preview" --dry-run
 ```
 
@@ -100,7 +100,7 @@ For a single snapshot, use the same evaluate command with its explicit path. Fix
 ## Aggregate and plot
 
 ```bash
-python experiments/nsgym/scripts/analyze_dynamics_only_ttt.py \
+python -m experiments.nsgym.analysis adaptation --format budgets \
   --evaluations "$OUT/evaluations" --runs "$RUNS" --output "$OUT/analysis"
 ```
 

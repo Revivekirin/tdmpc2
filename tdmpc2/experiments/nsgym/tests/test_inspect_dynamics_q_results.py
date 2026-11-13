@@ -7,10 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 import io
 
-SCRIPT = Path(__file__).parents[1]/'scripts/inspect_dynamics_q_results.py'
-spec = importlib.util.spec_from_file_location('followup', SCRIPT)
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
+from experiments.nsgym.analysis import diagnostics as m
 
 
 class FollowupTests(unittest.TestCase):

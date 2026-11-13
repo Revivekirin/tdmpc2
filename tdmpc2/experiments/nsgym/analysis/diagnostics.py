@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Four read-only follow-up questions on completed Dynamics+Q results. No CUDA."""
+from . import schema as _io
 import argparse
 import csv
 import hashlib
@@ -9,29 +10,17 @@ from pathlib import Path
 from statistics import mean, median
 
 
-def read(path):
-    return json.loads(path.read_text())
+read = _io.read_required
 
 
-def rows(path):
-    with path.open(newline='') as f:
-        return list(csv.DictReader(f))
+rows = _io.list_rows
 
 
 def save(path, data):
-    if not data:
-        return
-    with path.open('x', newline='') as f:
-        w = csv.DictWriter(f, list(dict.fromkeys(k for r in data for k in r)))
-        w.writeheader(); w.writerows(data)
+    return _io.save_table(path, data, empty='skip')
 
 
-def digest(path):
-    h = hashlib.sha256()
-    with path.open('rb') as f:
-        for block in iter(lambda: f.read(1048576), b''):
-            h.update(block)
-    return h.hexdigest()
+digest = _io.sha256
 
 
 def key(r):
@@ -255,4 +244,3 @@ def main():
     a=p.parse_args();inspect(a.comparison,a.runs,a.output)
 
 
-if __name__=='__main__':main()

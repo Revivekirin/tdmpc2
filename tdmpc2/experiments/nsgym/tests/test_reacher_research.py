@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
-from analyze_reacher_research import collapse, identity, num, unique, snapshot_key, validate_resume
+from experiments.nsgym.analysis.reacher import collapse, identity, num, unique, snapshot_key, validate_resume
 
 class ResearchTests(unittest.TestCase):
     def test_reused_reference_is_one_observation(self):

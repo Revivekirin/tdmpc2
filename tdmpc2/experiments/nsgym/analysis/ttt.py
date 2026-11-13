@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Analyze saved final-snapshot TTT CSVs; never load a model or run physics."""
+from . import schema as _io
 import argparse
 import csv
 import hashlib
@@ -13,30 +14,17 @@ METHODS = ('Frozen', 'Dynamics-only', 'Q-only', 'Dynamics+Q',
            'Encoder+Dynamics', 'Full Joint RL')
 
 
-def read(path):
-    return json.loads(Path(path).read_text())
+read = _io.read_required
 
 
-def rows(path):
-    with Path(path).open(newline='') as handle:
-        yield from csv.DictReader(handle)
+rows = _io.rows
 
 
 def write(path, records, fields=None):
-    records = list(records)
-    fields = fields or list(dict.fromkeys(key for row in records for key in row))
-    with Path(path).open('x', newline='') as handle:
-        writer = csv.DictWriter(handle, fields, extrasaction='ignore')
-        writer.writeheader()
-        writer.writerows(records)
+    return _io.save_table(path, records, fields, ignore_extra=True)
 
 
-def digest(path):
-    h = hashlib.sha256()
-    with Path(path).open('rb') as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
-            h.update(chunk)
-    return h.hexdigest()
+digest = _io.sha256
 
 
 def number(value, name):
@@ -62,13 +50,8 @@ def quantiles(values):
 
 
 def stream_ci(values):
-    import numpy as np
-    if len(values) < 2:
-        return None, None
-    a = np.asarray(values, dtype=float)
-    rng = np.random.default_rng(20261111)
-    samples = a[rng.integers(len(a), size=(10000, len(a)))].mean(axis=1)
-    return tuple(map(float, np.quantile(samples, [.025, .975])))
+    from .statistics import bootstrap
+    return bootstrap(values) if len(values) >= 2 else (None, None)
 
 
 def stage(root, mode, expected, audit, source_index, frozen_episodes):
@@ -613,4 +596,3 @@ def main(argv=None):
     print(f'{status}: prediction {len(prediction)}/36, control {len(control_rows)}/36, output {out}')
 
 
-if __name__=='__main__':main()

@@ -41,7 +41,7 @@ PY
 The new analysis CLI also has a marker inventory mode; it requires only Python and NumPy:
 
 ```bash
-python experiments/nsgym/scripts/analyze_reacher_research.py \
+python -m experiments.nsgym.analysis adaptation --format reacher \
   --source "$ROOT" --output /tmp/reacher-marker-inventory-01 --stage inventory
 ```
 
@@ -77,10 +77,10 @@ conda activate tdmpc2-nsgym
 cd /home/jhkim/repos/tdmpc2
 SOURCE=/home/jhkim/repos/tdmpc2/results/nsgym/reacher/preview-v1/analysis-comparison-home-01
 OUTPUT=/home/jhkim/repos/tdmpc2/results/nsgym/reacher-analysis-v2
-python experiments/nsgym/scripts/analyze_reacher_research.py --help
-python experiments/nsgym/scripts/analyze_reacher_research.py \
+python -m experiments.nsgym.analysis adaptation --format reacher --help
+python -m experiments.nsgym.analysis adaptation --format reacher \
   --source "$SOURCE" --output "$OUTPUT" --dry-run
-python experiments/nsgym/scripts/analyze_reacher_research.py \
+python -m experiments.nsgym.analysis adaptation --format reacher \
   --source "$SOURCE" --output "$OUTPUT" \
   --nominal-record /home/jhkim/repos/tdmpc2/results/nsgym/reacher/preview-v1/nominal-home-01/selected_reacher_checkpoint.json
 ```
@@ -101,8 +101,8 @@ Local reproduction (workspace root has a nested project):
 
 ```bash
 cd /Users/jihyekim/Desktop/tdmpc2
-/Users/jihyekim/miniconda3/envs/basilisk-rl/bin/python \
-  tdmpc2/experiments/nsgym/scripts/analyze_reacher_research.py \
+PYTHONPATH=tdmpc2 /Users/jihyekim/miniconda3/envs/basilisk-rl/bin/python \
+  -m experiments.nsgym.analysis adaptation --format reacher \
   --source results/nsgym/preview-v1/analysis-comparison-home-01 \
   --output results/nsgym/reacher-analysis-v2-reproduced \
   --nominal-record results/nsgym/reacher-analysis-v2/provenance/selected_nominal_record.json \
@@ -124,15 +124,15 @@ is explicitly incomplete. No simulation, training or inference is performed.
 ```bash
 cd /Users/jihyekim/Desktop/tdmpc2
 MPLCONFIGDIR=/tmp/mpl-reacher-analysis \
-/Users/jihyekim/miniconda3/envs/basilisk-rl/bin/python \
-  tdmpc2/experiments/nsgym/scripts/analyze_reacher_research.py \
+PYTHONPATH=tdmpc2 /Users/jihyekim/miniconda3/envs/basilisk-rl/bin/python \
+  -m experiments.nsgym.analysis adaptation --format reacher \
   --source results/nsgym/preview-v1/analysis-comparison-home-01 \
   --raw-source results/nsgym/reacher-analysis-inputs-20261113-135148 \
   --output results/nsgym/reacher-analysis-v3 \
   --halfcheetah results/nsgym/mechanism-analysis-750k-v1
 ```
 
-On server4, use `python experiments/nsgym/scripts/analyze_reacher_research.py`, set `--source` to
+On server4, use `python -m experiments.nsgym.analysis adaptation --format reacher`, set `--source` to
 `results/nsgym/reacher/preview-v1/analysis-comparison-home-01` and `--raw-source` to
 `results/nsgym/reacher/preview-v1`; other paths are relative to the project root.
 The original-record mode writes supplementary audit reports even when the export narrative is disabled.

@@ -3,6 +3,7 @@
 All uncertainty intervals resample independent evaluation/calibration seeds, never
 individual time steps or correlated probe windows. Outputs go to a new directory.
 """
+from . import schema as _io
 import argparse
 import csv
 import hashlib
@@ -17,45 +18,29 @@ import numpy as np
 from scipy.stats import spearmanr
 
 
-PARAMS = ('bthigh_damping', 'torso_mass')
-LABELS = {'bthigh_damping': 'Back-thigh damping', 'torso_mass': 'Torso mass'}
-SEVERITIES = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
-COLORS = dict(zip(SEVERITIES, plt.get_cmap('viridis')(np.linspace(.08, .9, 6))))
-PRIMARY_SHA256 = 'f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b'
+_CONTRACT = _io.read_required(Path(__file__).with_name('config.json'))['historical_adapters']['physical']
+PARAMS = tuple(_CONTRACT['parameters'])
+LABELS = _CONTRACT['labels']
+SEVERITIES = tuple(_CONTRACT['severities'])
+COLORS = dict(zip(SEVERITIES, plt.get_cmap('viridis')(np.linspace(.08, .9, len(SEVERITIES)))))
+PRIMARY_SHA256 = _CONTRACT['checkpoint_sha256']
 
 
-def read_csv(path):
-    with path.open(newline='') as stream:
-        return list(csv.DictReader(stream))
+read_csv = _io.list_rows
 
 
 def write_csv(path, rows):
-    if not rows:
-        raise ValueError(f'No rows for {path}')
-    with path.open('w', newline='') as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
+    return _io.save_table(path, rows, list(rows[0]) if rows else None, mode='w', empty='error')
 
 
-def sha256(path):
-    digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b''):
-            digest.update(block)
-    return digest.hexdigest()
+sha256 = _io.sha256
 
 
 def stats(values, seed=20261111):
-    """Mean/median and percentile bootstrap of the mean over seed-level values."""
+    from .statistics import bootstrap
     a = np.asarray(values, dtype=float)
-    if not len(a) or not np.isfinite(a).all():
-        raise ValueError('Missing or nonfinite seed-level measurements')
-    rng = np.random.default_rng(seed)
-    means = a[rng.integers(len(a), size=(10000, len(a)))].mean(axis=1)
-    lo, hi = np.quantile(means, (.025, .975))
-    return dict(n=len(a), mean=float(a.mean()), median=float(np.median(a)),
-                ci_low=float(lo), ci_high=float(hi))
+    lo, hi = bootstrap(a, seed=seed, single=True)
+    return dict(n=len(a), mean=float(a.mean()), median=float(np.median(a)), ci_low=lo, ci_high=hi)
 
 
 def key(row):
@@ -572,5 +557,3 @@ def main():
     print(f'PASS: {out}; conditions={len(integrated)}, seed points={len(seed_rows)}, onset bins={len(timeline)}')
 
 
-if __name__ == '__main__':
-    main()

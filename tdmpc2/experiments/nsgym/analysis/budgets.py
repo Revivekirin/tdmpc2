@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Aggregate only completed TTT evaluations. No simulator or model execution."""
+from . import schema as _io
 import argparse
 import csv
 import json
@@ -11,18 +12,18 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 
-def read(p): return json.loads(p.read_text())
-def records(p):
-    with p.open() as f:return list(csv.DictReader(f))
-def write(p,rs):
-    with p.open('x',newline='') as f:
-        w=csv.DictWriter(f,list(rs[0]));w.writeheader();w.writerows(rs)
+read = _io.read_required
+records = _io.list_rows
+def write(p, rs):
+    return _io.save_table(p, rs, list(rs[0]))
 def stats(v):
-    a=np.array(v,dtype=float);rng=np.random.default_rng(90210)
-    ci=np.quantile(a[rng.integers(len(a),size=(10000,len(a)))].mean(1),[.025,.975]) if len(a)>1 else [np.nan,np.nan]
-    q=np.quantile(a,[.25,.75]);out=int(((a<q[0]-1.5*(q[1]-q[0]))|(a>q[1]+1.5*(q[1]-q[0]))).sum())
-    return dict(n_adaptation_seeds=len(a),mean=float(a.mean()),median=float(np.median(a)),
-        std=float(a.std(ddof=1)) if len(a)>1 else np.nan,ci_low=ci[0],ci_high=ci[1],outliers_iqr=out)
+    from .statistics import summary
+    s = summary(v, 'budgets')
+    return dict(n_adaptation_seeds=s['n'], mean=s['mean'], median=s['median'],
+                std=s['std'] if s['std'] is not None else np.nan,
+                ci_low=s['ci_low'] if s['ci_low'] is not None else np.nan,
+                ci_high=s['ci_high'] if s['ci_high'] is not None else np.nan,
+                outliers_iqr=s['outliers'])
 
 
 SYNTHETIC=False
@@ -202,4 +203,3 @@ def online_plots(root,out):
             legend(axs);fig.suptitle(f'ONLINE adaptation, episode {episode}: observed pre-update error; stream bootstrap CI')
             fig.tight_layout();save(fig,out/f'online_episode_{episode}_{metric}.png',dpi=160);plt.close(fig)
 
-if __name__=='__main__':main()

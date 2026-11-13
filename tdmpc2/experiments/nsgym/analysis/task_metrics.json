@@ -1,0 +1,16 @@
+{
+  "halfcheetah": {
+    "physical_response_metric": "root_velocity_l2",
+    "task_output_metric": "forward_velocity",
+    "episode_horizon": 1000,
+    "action_dimensions": 6,
+    "mass_semantics": "MuJoCo body mass as recorded by NS-Gym setter"
+  },
+  "reacher": {
+    "physical_response_metric": "delta_tip_m",
+    "task_output_metric": "distance_final",
+    "episode_horizon": 50,
+    "action_dimensions": 2,
+    "mass_semantics": "body mass only; inertia held fixed in this intervention"
+  }
+}

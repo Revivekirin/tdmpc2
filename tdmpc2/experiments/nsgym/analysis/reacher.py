@@ -3,6 +3,7 @@
 
 No model loading, optimizer or environment calls. Missing original evidence stays missing.
 """
+from . import schema as _io
 import argparse
 from collections import Counter, defaultdict
 import csv
@@ -13,11 +14,12 @@ import subprocess
 import zipfile
 
 import numpy as np
-from analyze_existing_mechanisms import Sources, digest, table, js, stats, unique, correlation
+from ..scripts.analyze_existing_mechanisms import Sources, digest, table, js, stats, unique, correlation
 
 ROOT = Path(__file__).resolve().parents[3]
-FAMILIES = dict(D0='joint0_damping', D1='joint1_damping', M0='body0_mass', M1='body1_mass')
-GRID = [.5, .75, 1., 1.25, 1.5, 2.]
+_CONTRACT = _io.read_required(Path(__file__).with_name('config.json'))['historical_adapters']['reacher']
+FAMILIES = _CONTRACT['families']
+GRID = _CONTRACT['severities']
 METHODS = {'frozen': 'Frozen', 'decision': 'Dynamics-only', 'full_joint_rl': 'Joint RL'}
 METRICS = ['episode_return', 'reward_per_step', 'reward_dist', 'reward_ctrl', 'distance_initial',
            'distance_mean', 'distance_final', 'distance_min', 'action_abs', 'action_saturation',
@@ -782,8 +784,8 @@ def main():
         optimizer_updates=0,environment_transitions=0,inference_calls=0)
     js(pro/'analysis_config.json',analysis_config)
     shutil.copy2(ROOT/'experiments/nsgym/configs/reacher_pipeline_v1.json',out/'analysis_code/reacher_pipeline_v1.json')
-    for filename in ('analyze_reacher_research.py','analyze_existing_mechanisms.py'):
-        p=Path(__file__).with_name(filename);src.track(p);shutil.copy2(p,out/'analysis_code'/filename)
+    for p in (Path(__file__), ROOT/'experiments/nsgym/scripts/analyze_existing_mechanisms.py', Path(__file__).with_name('schema.py')):
+        src.track(p);shutil.copy2(p,out/'analysis_code'/p.name)
     for rel in ('tdmpc2/envs/nsgym/reacher.py','experiments/nsgym/scripts/reacher_pipeline.py','experiments/nsgym/scripts/run_full_joint_rl.py'):
         if (ROOT/rel).exists():src.track(ROOT/rel)
     documentation=ROOT/'experiments/nsgym/RUN_REACHER_ANALYSIS.md'
@@ -931,4 +933,3 @@ def write_reports(out,config,canonical,matched,summaries,streams,coupling,covera
         'Required: Python, NumPy, Matplotlib. Source hashes and paths are in provenance/input_manifest.json. The ZIP contains no checkpoints or raw trajectories.\n')
 
 
-if __name__ == '__main__': main()

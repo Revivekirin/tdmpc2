@@ -11,7 +11,7 @@
 - `common/buffer.py`: original RL replay uses CUDA sequence slicing and reward-bearing trajectories. It is intentionally not used for TTT; tested adapter replay stores only observed one-step `(observation, action, next_observation)` tuples.
 - Existing physical severity config, evaluation split and Frozen collection schema were inspected. Full grid remains unchanged. Missing dedicated adaptation split is resolved explicitly by assigning existing validation seeds to independent adaptation streams, not by silently training on evaluation seeds.
 
-The new runner is `experiments/nsgym/scripts/run_dynamics_only_ttt.py`; analysis is `analyze_dynamics_only_ttt.py`. Imports resolve both the normal server layout and the nested local checkout. Existing core files and original result files were not edited.
+The new runner is `experiments/nsgym/scripts/run_dynamics_only_ttt.py`; analysis is now `python -m experiments.nsgym.analysis adaptation --format budgets` (the former `analyze_dynamics_only_ttt.py` is retired). Imports resolve both the normal server layout and the nested local checkout. Existing core files and original result files were not edited.
 
 ## Executable behavior
 

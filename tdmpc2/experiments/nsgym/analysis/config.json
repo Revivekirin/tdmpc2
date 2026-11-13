@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "reacher_dynamics_q": {
+    "training_completion": "",
+    "prediction_completion": "",
+    "control_completion": "",
+    "aggregate_completion": "",
+    "aggregate_per_seed_csv": ""
+  },
+  "sources": {
+    "halfcheetah": {
+      "comparison": "dynamics-q-750k-v1/comparison/four_method_paired_comparison.csv",
+      "completion": "dynamics-q-750k-v1/comparison/completion.json",
+      "physical": "physical-severity-750k-v1/physical-summary/physical_response_by_severity.csv",
+      "q": "q-planning-mechanism-750k-v1 2/tables/immediate_per_stream.csv",
+      "q_divergence": "q-planning-mechanism-750k-v1 2/tables/divergence_per_stream.csv",
+      "planning": "q-planning-mechanism-750k-v1 2/tables/planning_score_components_per_stream.csv",
+      "ranking": "q-planning-mechanism-750k-v1 2/tables/candidate_ranking_comparison_per_stream.csv",
+      "q_completion": "q-planning-mechanism-750k-v1 2/provenance/completion.json",
+      "checkpoint_hash": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b",
+      "checkpoint_id": "checkpoint-000750000",
+      "training_seed": "17",
+      "environment_id": "nsgym-halfcheetah",
+      "adapter": "halfcheetah"
+    },
+    "reacher": {
+      "comparison": "reacher-analysis-v3/tables/matched_comparison.csv",
+      "completion": "reacher-analysis-v3/provenance/completion.json",
+      "physical": "reacher-analysis-v3/tables/physical_response_summary.csv",
+      "predictions": "reacher-analysis-v3/tables/canonical_prediction_results.csv",
+      "episodes": "reacher-analysis-v3/tables/canonical_episode_results.csv",
+      "checkpoint_record": "reacher-analysis-v3/provenance/selected_nominal_record.json",
+      "environment_id": "nsgym-reacher",
+      "training_seed": "29",
+      "adapter": "reacher"
+    }
+  },
+  "methods": [
+    "frozen",
+    "dynamics_only",
+    "dynamics_q",
+    "joint"
+  ],
+  "historical_adapters": {
+    "physical": {
+      "parameters": [
+        "bthigh_damping",
+        "torso_mass"
+      ],
+      "labels": {
+        "bthigh_damping": "Back-thigh damping",
+        "torso_mass": "Torso mass"
+      },
+      "severities": [
+        0.5,
+        0.75,
+        1,
+        1.25,
+        1.5,
+        2
+      ],
+      "checkpoint_sha256": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b"
+    },
+    "reacher": {
+      "families": {
+        "D0": "joint0_damping",
+        "D1": "joint1_damping",
+        "M0": "body0_mass",
+        "M1": "body1_mass"
+      },
+      "severities": [
+        0.5,
+        0.75,
+        1,
+        1.25,
+        1.5,
+        2
+      ]
+    }
+  }
+}

@@ -9,6 +9,7 @@ import sys
 import time
 import zipfile
 import numpy as np
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 from analyze_existing_mechanisms import digest, SHA
 from q_planning_core import (Config, require, distributions, js, candidate_bank, compatible,
     component_hashes, state_hash, ReadOnlyHybrid, score, ranks, CORE)
@@ -35,9 +36,7 @@ def identity(k):return dict(parameter=k[0],severity=k[1],adaptation_seed=k[2])
 def label(k):return f'{k[0]}-k{k[1]:g}-seed{k[2]}'
 def selected(a,k):
     return (not a.parameter or k[0]==a.parameter) and (a.severity is None or k[1]==a.severity) and (a.seed is None or k[2]==a.seed)
-def stats(x):
-    x=np.asarray(x,dtype=float);require(np.isfinite(x).all(),'Nonfinite metric')
-    return dict(mean=float(x.mean()),median=float(np.median(x)),q05=float(np.quantile(x,.05)),q95=float(np.quantile(x,.95)),n=len(x))
+from experiments.nsgym.analysis.q_statistics import stats
 def torchload(p):
     import torch
     return torch.load(p,map_location='cpu',weights_only=False)
@@ -347,32 +346,7 @@ def aggregate(a):
     out=a.output;immediate=rows(out/'tables/immediate_q_metrics.csv')
     divergence=rows(out/'tables/q_distribution_divergence.csv')
     # Within each adaptation stream average heads/observations, then evaluation seeds.
-    def summarize(data,group,fields):
-        episodes=defaultdict(list)
-        for r in data:episodes[tuple(r[k] for k in group+['adaptation_seed','evaluation_seed'])].append(r)
-        per_seed=[]
-        for keys,rr in episodes.items():
-            per_seed.append(dict(zip(group+['adaptation_seed','evaluation_seed'],keys),
-                **{f:float(np.mean([float(r[f]) for r in rr])) for f in fields}))
-        streams=defaultdict(list)
-        for r in per_seed:streams[tuple(r[k] for k in group+['adaptation_seed'])].append(r)
-        streamrows=[dict(zip(group+['adaptation_seed'],k),**{f:float(np.mean([r[f] for r in rr])) for f in fields},
-                        evaluation_seeds=len(rr)) for k,rr in streams.items()]
-        groups=defaultdict(list)
-        for r in streamrows:groups[tuple(r[k] for k in group)].append(r)
-        summaries=[]
-        for k,rr in groups.items():
-            for metric in fields:
-                vals=[r[metric] for r in rr];unit='adaptation_seed'
-                if 'method' in group and dict(zip(group,k))['method']=='F':
-                    # Frozen is identical across adaptation replicas; use shared eval seeds once.
-                    ep=[r for r in per_seed if tuple(r[g] for g in group)==k and r['adaptation_seed']==rr[0]['adaptation_seed']]
-                    vals=[r[metric] for r in ep];unit='shared_frozen_evaluation_seed'
-                rng=np.random.default_rng(817)
-                boot=np.mean(rng.choice(vals,(2000,len(vals)),replace=True),axis=1)
-                summaries.append(dict(zip(group,k),metric=metric,**stats(vals),sampling_unit=unit,
-                    ci_low=float(np.quantile(boot,.025)),ci_high=float(np.quantile(boot,.975))))
-        return streamrows,summaries
+    from experiments.nsgym.analysis.q_statistics import summarize
     stream,summ=summarize(immediate,['parameter','severity','method'],['q','entropy','ensemble_std','boundary_mass','interhead_js','bellman_residual','bellman_soft_ce'])
     table(out/'tables/immediate_per_stream.csv',stream);table(out/'tables/immediate_summary.csv',summ)
     divstream,divsumm=summarize(divergence,['parameter','severity','left','right'],['js','q_difference'])
