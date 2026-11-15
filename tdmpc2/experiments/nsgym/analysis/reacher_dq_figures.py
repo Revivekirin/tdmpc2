@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
+import time
 from pathlib import Path
 
 import matplotlib
@@ -49,7 +51,8 @@ def ci(matrix, key):
     rng=np.random.default_rng(int.from_bytes(digest[:8],'big'))
     n_stream,n_eval=matrix.shape
     a=rng.integers(n_stream,size=(BOOTSTRAPS,n_stream,1))
-    e=rng.integers(n_eval,size=(BOOTSTRAPS,n_stream,n_eval))
+    # Evaluation seeds are shared across streams: resample that axis jointly.
+    e=rng.integers(n_eval,size=(BOOTSTRAPS,1,n_eval))
     means=matrix[a,e].mean(axis=(1,2))
     return float(matrix.mean()),float(np.quantile(means,.025)),float(np.quantile(means,.975))
 
@@ -98,7 +101,7 @@ def validate(root, unified):
         done=read_json(path)
         assert done['status']=='PASS' and done.get('snapshot_sha256')
         snap=path.parent/'snapshot-0010000.pt'
-        assert snap.is_file(), snap
+        if not snap.is_file():continue  # Q inventory below reports absent model bytes.
         key=str(snap.relative_to(root))
         assert provenance['files'].get(key)==done['snapshot_sha256']==sha256(snap), key
     return checkpoint, provenance
@@ -206,215 +209,16 @@ def finish_axes(ax, title, ylabel, *, severity=True):
     ax.grid(alpha=.18)
 
 
-def nominal_figures(root, nominal, output, figures):
-    steps=sorted(nominal.training_step.unique())
-    for stem,seed_view in [('reacher_nominal_checkpoint_return_distance',False),
-                           ('reacher_nominal_checkpoint_stability',True)]:
-        fig,axes=plt.subplots(1,2,figsize=(11,4.2))
-        for ax,(metric,title,unit) in zip(axes,[('episode_return','Held-out nominal return','Episode return ↑'),
-            ('distance_mean','Held-out mean target distance','Distance (m) ↓')]):
-            means=[];low=[];high=[]
-            for step in steps:
-                vals=nominal[nominal.training_step==step].sort_values('seed')[metric].to_numpy()
-                assert len(vals)==20
-                m,l,h=ci(vals[None,:],('nominal',step,metric))
-                means.append(m);low.append(l);high.append(h)
-                if seed_view:
-                    ax.scatter(np.full(20,step),vals,s=10,color='#0072B2',alpha=.35)
-            line_panel(ax,steps,means,low,high,label='20 validation seeds',color='#0072B2')
-            ax.axvline(670000,color='#D55E00',ls='--',lw=1,label='selected 670k')
-            finish_axes(ax,title,unit,severity=False)
-            ax.set_xticks(steps,[f'{s/1000:g}k' for s in steps]);ax.legend(fontsize=8)
-        fig.suptitle('Reacher nominal checkpoint validation | actual candidates: 340k, 670k, 1M\n'
-                     'Dots are held-out validation seeds; CI resamples 20 seeds',fontsize=11)
-        fig.tight_layout(rect=(0,0,1,.91))
-        draw(output,'supplementary',stem,fig,'Selected 670k nominal baseline and seed variability',
-             ['reacher/preview-v1/nominal-home-01/reacher_checkpoint_validation.csv'],figures)
 
 
-def physical_figures(physical, output, figures):
-    measurements=[('actual_parameter','reacher_physical_applied_parameter','Applied parameter','Native physics units'),
-                  ('delta_qvel_rad_s','reacher_physical_controlled_response','Controlled one-step joint velocity response','|Δqvel| (rad/s)'),
-                  ('latent_ratio','reacher_physical_latent_error','Fixed-data one-step latent error ratio','Shifted / nominal latent MSE')]
-    for metric,stem,title,ylabel in measurements:
-        fig,axes=plt.subplots(4,1,figsize=(9,12),sharex=True)
-        for family,ax in zip(FAMILIES,axes):
-            rr=physical[physical.family==family]
-            seed=rr.groupby(['severity','seed'],as_index=False)[metric].mean()
-            means=[];low=[];high=[]
-            for k in GRID:
-                vals=seed.loc[seed.severity==k,metric].to_numpy()
-                assert len(vals)==5
-                m,l,h=ci(vals[None,:],(family,k,metric));means.append(m);low.append(l);high.append(h)
-            line_panel(ax,GRID,means,low,high,label='5 calibration seeds',color='#0072B2')
-            nominal=rr.nominal_parameter.iloc[0];unit='kg' if family.startswith('M') else 'damping units'
-            finish_axes(ax,f'{family}: {FAMILY_LABEL[family]} (nominal {nominal:.6g} {unit})',ylabel)
-        fig.suptitle(f'{title} | controlled fixed states/actions | 15 bank steps per seed, aggregated to n=5 seeds\n'
-                     'Response metric: Δqvel norm; signless magnitude, not locomotion performance',fontsize=11)
-        fig.tight_layout(rect=(0,0,1,.94))
-        draw(output,'supplementary',stem,fig,'Physical intervention → measured response → latent mismatch',
-             ['reacher/preview-v1/probe-home-01/reacher_physical_response.csv'],figures)
 
 
-def frozen_figures(frozen, output, figures):
-    specs=[('episode_return','reacher_frozen_shifted_return','Shifted episode return ↑'),
-           ('distance_mean','reacher_frozen_target_distance','Mean target distance (m) ↓'),
-           ('reward_ctrl','reacher_frozen_control_cost','Control reward / action penalty ↑'),
-           ('latent_mse','reacher_frozen_latent_error','Closed-loop one-step latent MSE ↓')]
-    for metric,stem,ylabel in specs:
-        fig,axes=plt.subplots(4,1,figsize=(9,12),sharex=True)
-        for family,ax in zip(FAMILIES,axes):
-            rr=frozen[frozen.family==family]
-            means=[];low=[];high=[]
-            for k in GRID:
-                vals=rr.loc[rr.severity==k].sort_values('seed')[metric].to_numpy()
-                assert len(vals)==20
-                m,l,h=ci(vals[None,:],('frozen',family,k,metric));means.append(m);low.append(l);high.append(h)
-            line_panel(ax,GRID,means,low,high,label='Frozen',color=COLOR['frozen'])
-            ax.axhline(means[GRID.index(1.)],color='#D55E00',ls='--',lw=.8,label='k=1 nominal physics')
-            finish_axes(ax,f'{family}: {FAMILY_LABEL[family]}',ylabel)
-        axes[0].legend(fontsize=8)
-        fig.suptitle('Frozen generalization | 20 held-out evaluation seeds per condition\n'
-                     'The horizontal k=1 reference is nominal physics; repeated family aliases are not independent tasks',fontsize=11)
-        fig.tight_layout(rect=(0,0,1,.94))
-        draw(output,'supplementary',stem,fig,'Baseline severity sensitivity before adaptation',
-             ['reacher/preview-v1/frozen-home-01/reacher_frozen_severity.csv'],figures)
 
 
-def method_figures(canonical, output, figures):
-    specs=[('episode_return','shifted','reacher_methods_shifted_return_absolute','Shifted episode return ↑',METHODS),
-           ('distance_mean','shifted','reacher_methods_target_distance_absolute','Mean target distance (m) ↓',METHODS),
-           ('latent_mse','fixed_bank','reacher_methods_latent_mse_absolute','Fixed-bank one-step latent MSE ↓',METHODS[:3])]
-    stats=[]
-    def point(family,k,method,kind,metric):
-        matrix=points_for(canonical,family,k,method,kind,metric)
-        if matrix is None:return None
-        m,l,h=ci(matrix,(family,k,method,kind,metric))
-        stats.append(dict(family=family,severity=k,method=method,split=kind,metric=metric,
-                          mean=m,ci_low=l,ci_high=h,n_stream=matrix.shape[0],n_eval=matrix.shape[1]))
-        return m,l,h
-    for metric,kind,stem,ylabel,methods in specs:
-        fig,axes=plt.subplots(4,1,figsize=(9,12),sharex=True)
-        for family,ax in zip(FAMILIES,axes):
-            for method in methods:
-                values=[point(family,k,method,kind,metric) for k in GRID]
-                assert all(v is not None for v in values),(family,method,metric)
-                line_panel(ax,GRID,[v[0] for v in values],[v[1] for v in values],[v[2] for v in values],
-                           label=LABEL[method],color=COLOR[method])
-            if metric=='latent_mse':
-                ax.set_yscale('log')
-            finish_axes(ax,f'{family}: {FAMILY_LABEL[family]}',ylabel)
-        axes[0].legend(ncol=4,fontsize=8)
-        note='Joint omitted: its encoder changes the latent target' if metric=='latent_mse' else 'Four methods share each physical condition and 20 held-out seeds'
-        fig.suptitle(f'Reacher absolute method comparison | {note}\n'
-                     'Bars: 95% hierarchical bootstrap over 3 adaptation streams and 20 evaluation seeds; Frozen resamples seeds only',fontsize=10)
-        fig.tight_layout(rect=(0,0,1,.93))
-        draw(output,'supplementary',stem,fig,'Absolute held-out method performance before difference plots',
-             ['canonical_records.csv (path in manifest.json)'],figures)
-    fig,axes=plt.subplots(4,3,figsize=(15,14),sharex=True)
-    for i,family in enumerate(FAMILIES):
-        for j,(metric,ylabel) in enumerate([('reward_dist','Distance reward ↑'),('reward_ctrl','Control reward ↑'),('episode_return','Total return ↑')]):
-            ax=axes[i,j]
-            for method in METHODS:
-                values=[point(family,k,method,'shifted',metric) for k in GRID]
-                assert all(v is not None for v in values)
-                line_panel(ax,GRID,[v[0] for v in values],[v[1] for v in values],[v[2] for v in values],
-                           label=LABEL[method],color=COLOR[method])
-            finish_axes(ax,f'{family} {FAMILY_LABEL[family]} | {ylabel}',ylabel)
-    axes[0,0].legend(ncol=2,fontsize=8)
-    fig.suptitle('Reacher reward decomposition | absolute held-out values | return = distance reward + control reward\n'
-                 'Control reward is a negative action penalty; separate panels avoid mixing metric scales',fontsize=11)
-    fig.tight_layout(rect=(0,0,1,.94))
-    draw(output,'supplementary','reacher_methods_reward_decomposition',fig,
-         'Distance improvement and action-cost tradeoff behind return',
-         ['canonical_records.csv (path in manifest.json)'],figures)
-    pd.DataFrame(stats).drop_duplicates(['family','severity','method','split','metric']).to_csv(output/'tables/method_absolute_statistics.csv',index=False)
 
 
-def q_figures(online, output, figures):
-    # These are online training-batch measurements. They are not matched held-out
-    # Q distributions, and no Frozen/D/Joint categorical comparison is available.
-    online=online.copy();online['q_target_gap']=online.q_prediction-online.q_target
-    for metric,stem,ylabel in [('q_entropy','reacher_q_entropy_online_by_severity','Online batch categorical entropy'),
-                                ('q_target_gap','reacher_q_target_gap_online_by_severity','Online mean Q prediction − target')]:
-        fig,axes=plt.subplots(4,1,figsize=(9,12),sharex=True)
-        for family,ax in zip(FAMILIES,axes):
-            rr=online[(online.family==family)&(online.transition>=8000)]
-            stream=rr.groupby(['severity','adaptation_seed'],as_index=False)[metric].mean()
-            means=[];low=[];high=[]
-            for k in GRID:
-                vals=stream.loc[stream.severity==k,metric].to_numpy()
-                assert len(vals)==3
-                m,l,h=ci(vals[None,:],('online_q',family,k,metric));means.append(m);low.append(l);high.append(h)
-            line_panel(ax,GRID,means,low,high,label='D+Q only',color=COLOR['dynamics_q'])
-            finish_axes(ax,f'{family}: {FAMILY_LABEL[family]}',ylabel)
-        axes[0].legend(fontsize=8)
-        fig.suptitle('Reacher D+Q online training batches, transitions 8,000–10,000 | n=3 streams\n'
-                     'Not a held-out Q distribution; no matched Frozen/D/Joint Q values or categorical JS',fontsize=11)
-        fig.tight_layout(rect=(0,0,1,.94))
-        draw(output,'supplementary',stem,fig,'Available critic-side training diagnostic by severity',
-             ['reacher-dynamics-q-v1/comparison/update_diagnostics.csv'],figures)
-    metrics=[('q_loss','Q training loss'),('q_target_gap','Mean Q prediction − target'),
-             ('q_entropy','Categorical entropy'),('q_disagreement','Ensemble disagreement')]
-    palette=plt.get_cmap('viridis')
-    for family in FAMILIES:
-        fig,axes=plt.subplots(2,2,figsize=(12,7.5),sharex=True)
-        rr=online[online.family==family]
-        for ax,(metric,title) in zip(axes.flat,metrics):
-            for j,k in enumerate(GRID):
-                curve=rr[rr.severity==k].groupby('transition')[metric].median()
-                ax.plot(curve.index,curve.values,color=palette(j/5),lw=1,label=f'×{k:g}')
-            ax.axhline(0,color='#777777',lw=.6);ax.set(title=title,xlabel='Adaptation transitions',ylabel='Median across 3 streams');ax.grid(alpha=.15)
-        axes[0,0].legend(ncol=3,fontsize=8)
-        fig.suptitle(f'{family}: {FAMILY_LABEL[family]} | D+Q online training only\n'
-                     'Q prediction−target is a batch-mean gap, not a Bellman residual distribution',fontsize=11)
-        fig.tight_layout(rect=(0,0,1,.90))
-        draw(output,'supplementary',f'reacher_online_q_training_diagnostics_{family}',fig,
-             'How critic-side online diagnostics evolve during 10k adaptation transitions',
-             ['reacher-dynamics-q-v1/comparison/update_diagnostics.csv'],figures)
 
 
-def supplementary(paired, output, figures):
-    shifted=paired[paired.kind=='shifted'].copy()
-    shifted['dq_minus_d_return']=shifted['Dynamics+Q_episode_return']-shifted['Dynamics-only_episode_return']
-    shifted['d_minus_dq_distance']=shifted['Dynamics-only_distance_mean']-shifted['Dynamics+Q_distance_mean']
-    shifted['d_minus_dq_mse']=shifted.dynamics_mse-shifted.dq_mse
-    stream=shifted.groupby(['family','severity','adaptation_seed'],as_index=False)[
-        ['dq_minus_d_return','d_minus_dq_distance','d_minus_dq_mse']].mean()
-    stream.to_csv(output/'tables/paired_incremental_streams.csv',index=False)
-    for metric,stem,ylabel in [('dq_minus_d_return','reacher_incremental_q_effect_return','D+Q − D episode return ↑'),
-                                ('d_minus_dq_distance','reacher_incremental_q_effect_distance','D distance − D+Q distance (m) ↑'),
-                                ('d_minus_dq_mse','reacher_incremental_q_effect_prediction','D MSE − D+Q MSE ↑')]:
-        fig,axes=plt.subplots(4,1,figsize=(9,12),sharex=True)
-        for family,ax in zip(FAMILIES,axes):
-            rr=stream[stream.family==family];means=[];low=[];high=[]
-            for k in GRID:
-                vals=rr.loc[rr.severity==k,metric].to_numpy()
-                assert len(vals)==3
-                m,l,h=ci(vals[None,:],('incremental',family,k,metric));means.append(m);low.append(l);high.append(h)
-                ax.scatter(np.full(3,k),vals,s=13,color=COLOR['dynamics_q'],alpha=.45)
-            line_panel(ax,GRID,means,low,high,label='paired D+Q − D',color=COLOR['dynamics_q'])
-            ax.axhline(0,color='black',lw=.8)
-            finish_axes(ax,f'{family}: {FAMILY_LABEL[family]}',ylabel)
-        fig.suptitle('Supplementary incremental effect | n=3 paired adaptation streams per condition\n'
-                     'Dots: stream means over 20 matched evaluation seeds; intervals bootstrap 3 streams',fontsize=11)
-        fig.tight_layout(rect=(0,0,1,.93))
-        draw(output,'supplementary',stem,fig,'Incremental Q step after absolute results',
-             ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv'],figures)
-    fig,ax=plt.subplots(figsize=(8,6))
-    colors=dict(zip(FAMILIES,('#0072B2','#56B4E9','#009E73','#CC79A7')))
-    for family in FAMILIES:
-        rr=stream[stream.family==family]
-        ax.scatter(rr.d_minus_dq_mse,rr.dq_minus_d_return,label=family,color=colors[family],s=32,alpha=.8)
-    ax.axhline(0,color='black',lw=.8);ax.axvline(0,color='black',lw=.8)
-    ax.set(xlabel='Additional one-step latent MSE reduction from Q step ↑',
-           ylabel='D+Q − D shifted return ↑',title='Reacher prediction–control linkage: one point per adaptation stream')
-    ax.legend(title='Shift condition');ax.grid(alpha=.18)
-    fig.tight_layout()
-    draw(output,'supplementary','reacher_prediction_vs_control_scatter',fig,
-         'Association between fixed-bank prediction change and held-out control',
-         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv'],figures)
-    return stream
 
 
 def paired_evidence(paired, online, output):
@@ -504,284 +308,537 @@ def paired_evidence(paired, online, output):
     return effects,pd.DataFrame(variance),matrices
 
 
-def redesigned_figures(effects, variance, matrices, online, stream, output, figures):
-    cols=[('episode_return','Return ↑'),('distance_mean','Mean target distance (m) ↓'),
-          ('reward_dist','Distance reward ↑'),('reward_ctrl','Control reward ↑'),
-          ('latent_mse','Fixed-bank latent MSE ↓')]
-    fig,axes=plt.subplots(4,5,figsize=(25,18),sharex=True)
-    for i,family in enumerate(FAMILIES):
-        for j,(metric,label) in enumerate(cols):
-            ax=axes[i,j]
-            for h,method in enumerate(METHODS):
-                if metric=='latent_mse' and method=='joint':continue
-                vals=[ci(matrices[(family,k,metric,method)],('redesign',family,k,metric,method)) for k in GRID]
-                x=np.asarray(GRID)+(h-1.5)*.018
-                line_panel(ax,x,[v[0] for v in vals],[v[1] for v in vals],[v[2] for v in vals],
-                           label=LABEL[method],color=COLOR[method])
-            if metric=='latent_mse':ax.set_yscale('log')
-            finish_axes(ax,f'{family} {FAMILY_LABEL[family]} | {label}',label)
-            ax.margins(y=.18)
-    axes[0,0].legend(ncol=2,fontsize=8)
-    fig.suptitle('Reacher absolute held-out performance | 20 matched evaluation seeds per condition\n'
-                 '95% seed/stream bootstrap intervals; Joint latent MSE has a changed encoder and is excluded',fontsize=13)
-    fig.subplots_adjust(left=.055,right=.99,bottom=.055,top=.93,wspace=.32,hspace=.48)
-    draw(output,'main','reacher_absolute_performance',fig,'True absolute control and prediction values with unsuppressed uncertainty',
-         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv'],figures)
+METHOD_STYLE={'frozen':('o','-'),'dynamics_only':('s','--'),
+              'dynamics_q':('D','-.'),'joint':('^',':')}
+Q_NAMES={'F':'frozen','D':'dynamics_only','DQ':'dynamics_q','J':'joint'}
 
-    fig,axes=plt.subplots(4,2,figsize=(17,17),sharex=True)
-    for i,family in enumerate(FAMILIES):
-        for j,(metric,unit) in enumerate([('episode_return','Return improvement ↑'),('distance_mean','Distance reduction (m) ↑')]):
-            ax=axes[i,j]
-            for h,pair in enumerate(PAIRED_CONTRASTS):
-                label=PAIR_LABEL[pair];rr=effects[(effects.family==family)&(effects.metric==metric)&(effects.contrast==label)].set_index('severity')
-                rr=rr.loc[list(GRID)];x=np.asarray(GRID)+(h-1.5)*.018
-                line_panel(ax,x,rr.paired_mean,rr.ci_low,rr.ci_high,label=label,color=PAIR_COLOR[pair])
-                for s,field in enumerate(('stream_53000001','stream_53000002','stream_53000003')):
-                    ax.scatter(x+(s-1)*.006,rr[field],s=9,alpha=.28,color=PAIR_COLOR[pair],zorder=2)
-            ax.axhline(0,color='black',lw=.8)
-            finish_axes(ax,f'{family} {FAMILY_LABEL[family]} | {unit}',unit)
-            ax.margins(y=.18)
-    axes[0,0].legend(ncol=2,fontsize=8)
-    fig.suptitle('Same-seed paired improvements | dots: three adaptation-stream means\n'
-                 'Bars: descriptive 95% cluster bootstrap (3 streams, 20 shared evaluation seeds); positive distance means lower distance',fontsize=12)
-    fig.subplots_adjust(left=.085,right=.99,bottom=.06,top=.92,wspace=.24,hspace=.45)
-    draw(output,'main','reacher_paired_method_effects',fig,'Paired differences expose method effects despite shared seed difficulty',
-         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv','method run manifests'],figures)
 
-    fig,axes=plt.subplots(4,2,figsize=(16,15),sharex=True)
-    parts=[('between_evaluation_seed_variance','Evaluation seed','#0072B2'),
-           ('between_adaptation_stream_variance','Adaptation stream','#D55E00'),
-           ('residual_interaction_variance','Residual interaction','#009E73')]
-    for i,family in enumerate(FAMILIES):
-        for j,(series,title) in enumerate([('dynamics_q','D+Q absolute return'),('D+Q − D','D+Q − D paired return')]):
-            ax=axes[i,j]
-            rr=variance[(variance.family==family)&(variance.metric=='episode_return')&(variance.series==series)].set_index('severity').loc[list(GRID)]
-            bottom=np.zeros(len(GRID))
-            for column,label,color in parts:
-                y=rr[column].to_numpy()
-                ax.bar(GRID,y,bottom=bottom,width=.13,label=label,color=color);bottom+=y
-            ax.set(title=f'{family} {FAMILY_LABEL[family]} | {title}',xlabel='Severity k',ylabel='Cell-level variance')
-            ax.set_xticks(GRID);ax.axvline(1,color='#777777',ls=':',lw=.8);ax.grid(axis='y',alpha=.18)
-            if j==1:
-                ax.text(.98,.96,f"mean raw pair r={rr.raw_paired_correlation.mean():.4f}",transform=ax.transAxes,
-                        ha='right',va='top',fontsize=8)
-    axes[0,0].legend(ncol=1,fontsize=8)
-    fig.suptitle('Variance partition over 3 streams × 20 matched seeds | residual includes stream–seed interaction\n'
-                 'Bars are descriptive cell variance, not standard errors or independent-run counts',fontsize=12)
-    fig.subplots_adjust(left=.085,right=.99,bottom=.06,top=.91,wspace=.22,hspace=.45)
-    draw(output,'main','reacher_stream_variability',fig,'Diagnose shared evaluation difficulty and stream heterogeneity',
-         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv'],figures)
+def track(path, sources):
+    path=Path(path).resolve()
+    if str(path) not in sources:
+        stat=path.stat()
+        sources[str(path)]=dict(sha256=sha256(path),size=stat.st_size,mtime_ns=stat.st_mtime_ns)
+    return path
 
-    fig,axes=plt.subplots(2,2,figsize=(13,10))
-    for family,ax in zip(FAMILIES,axes.flat):
-        rr=stream[stream.family==family]
-        scatter=ax.scatter(rr.d_minus_dq_mse,rr.dq_minus_d_return,c=rr.severity,cmap='viridis',vmin=.5,vmax=2,s=35)
-        ax.axhline(0,color='black',lw=.8);ax.axvline(0,color='black',lw=.8)
-        ax.set(title=f'{family} {FAMILY_LABEL[family]} | n=18 streams',
-               xlabel='D MSE − D+Q MSE ↑',ylabel='D+Q − D return ↑');ax.grid(alpha=.18)
-    fig.colorbar(scatter,ax=list(axes.flat),label='Severity k',shrink=.7)
-    fig.suptitle('Prediction improvement and control change | one point per adaptation stream',fontsize=12)
-    fig.subplots_adjust(left=.09,right=.90,bottom=.08,top=.91,wspace=.27,hspace=.34)
-    draw(output,'main','reacher_prediction_control',fig,'Check whether latent improvement accompanies paired return improvement',
-         ['reacher-dynamics-q-v1/comparison/four_way_per_seed.csv'],figures)
 
-    fig,axes=plt.subplots(4,3,figsize=(16,15),sharex=True)
-    q=online[online.transition>=8000].copy();q['q_target_gap']=q.q_prediction-q.q_target
-    for i,family in enumerate(FAMILIES):
-        for j,(metric,title) in enumerate([('q_entropy','Categorical entropy'),
-             ('q_prediction','Scalar Q estimate'),('q_target_gap','Mean Q prediction − target')]):
-            ax=axes[i,j];rr=q[q.family==family].groupby(['severity','adaptation_seed'],as_index=False)[metric].mean()
-            values=[]
+def probability_js(p,q):
+    m=(p+q)/2
+    return .5*np.sum(p*(np.log(np.maximum(p,1e-30))-np.log(np.maximum(m,1e-30)))+
+                     q*(np.log(np.maximum(q,1e-30))-np.log(np.maximum(m,1e-30))),axis=-1)
+
+
+def reuse_reacher_q(cache, root, output, sources, gaps):
+    """Reuse a completed dashboard's forward arrays after source/numeric checks."""
+    import shutil
+    meta=read_json(cache/'manifest.json');prior=read_json(cache/'SOURCE_INPUTS.json')
+    assert read_json(cache/'q_inference/completion.json')['status']=='PASS'
+    for path,record in prior.items():
+        if not Path(path).is_relative_to(meta['source_root']):
+            continue  # Previous cache inputs are copied and checked below.
+        relative=Path(path).relative_to(meta['source_root'])
+        current=track(root/relative,sources)
+        assert sources[str(current)]['sha256']==record['sha256'],current
+    table=pd.read_csv(track(cache/'q_inference/q_per_seed.csv',sources))
+    assert len(table)==72*20*4
+    arrays=sorted((cache/'q_inference').glob('*-seed*.npz'))
+    assert len(arrays)==72, 'Q cache must contain all 72 raw probability archives'
+    dest=output/'q_inference';dest.mkdir()
+    for path in arrays:
+        with np.load(track(path,sources)) as data:
+            assert np.allclose(data['F_probability'],data['D_probability'],rtol=0,atol=1e-7)
+            family,rest=path.stem.split('-k');k,seed=rest.split('-seed')
+            for key,method in Q_NAMES.items():
+                p=data[key+'_probability'];assert np.allclose(p.sum(-1),1,atol=1e-6)
+                rr=table[(table.family==family)&(table.severity==float(k))&
+                         (table.adaptation_seed==int(seed))&(table.method==method)].sort_values('evaluation_seed')
+                assert len(rr)==20
+                entropy=-(p*np.log(np.maximum(p,1e-30))).sum(-1).reshape(5,20,16).mean(axis=(0,2))
+                assert np.allclose(entropy,rr.entropy,rtol=1e-5,atol=1e-6)
+        shutil.copy2(path,dest/path.name)
+    path=cache/'q_inference/D0-k2-seed53000001.npz'
+    with np.load(path) as data:
+        deep=dict(family='D0',severity=2,support=data['symlog_support'],
+            immediate={method:data[key+'_probability'][:,0].mean(0) for key,method in Q_NAMES.items()},
+            terminal={method:data[key+'_terminal_probability'].mean(0) for key,method in Q_NAMES.items()})
+    table.to_csv(dest/'q_per_seed.csv',index=False)
+    (dest/'protocol.json').write_text((cache/'q_inference/protocol.json').read_text())
+    (dest/'completion.json').write_text(json.dumps(dict(status='PASS',cache_source=str(cache),
+        streams=72,F_D_immediate_probability_invariant=True,new_forward_calls=0),indent=2))
+    gaps.append('Reacher held-out Bellman residual unavailable: saved bank lacks per-transition reward/terminal arrays.')
+    return table,deep
+
+
+def reacher_q_inference(root, output, device, sources, gaps):
+    """Only native WorldModel forward calls, with no agent/environment/optimizer."""
+    checkpoint=root/'reacher-full-01/checkpoint-000670000'
+    frozen_dir=root/'reacher/preview-v1/frozen-home-01'
+    index=pd.read_csv(track(frozen_dir/'reacher_frozen_severity.csv',sources))
+    bank_lookup=index.set_index(['family','severity','seed'])
+    bank_hashes={str((frozen_dir/row.data_file).resolve()):row.data_sha256 for row in index.itertuples()}
+    items=[]
+    for family in FAMILIES:
+        parameter={'D0':'joint0_damping','D1':'joint1_damping','M0':'body0_mass','M1':'body1_mass'}[family]
+        for k in GRID:
+            # k=1 families intentionally alias the same nominal bank file.
+            banks=[frozen_dir/bank_lookup.loc[(family,k,e),'data_file'] for e in range(54000001,54000021)]
+            for seed in range(53000001,53000004):
+                paths={
+                    'D':root/f'reacher/preview-v1/adapt-home-01/{family}-k{k:g}-decision-seed{seed}/snapshot-0010000.pt',
+                    'DQ':root/f'reacher-dynamics-q-v1/runs/{family}-k{k:g}-dynamics-q-seed{seed}/snapshot-0010000.pt',
+                    'J':root/f'reacher/preview-v1/full-joint-home-01/runs-fixed/{parameter}-k{k:g}-full-joint-seed{seed}/snapshot-0010000.pt'}
+                items.append((family,k,seed,paths,banks))
+    needed={checkpoint/'model.pt',checkpoint/'metadata.json'}
+    for _,_,_,paths,banks in items:needed.update(paths.values());needed.update(banks)
+    missing=sorted(str(p) for p in needed if not p.is_file())
+    if missing:
+        gaps.extend('Reacher offline Q missing input: '+p for p in missing)
+        return pd.DataFrame(),None
+    scripts=Path(__file__).resolve().parents[1]/'scripts'
+    sys.path.insert(0,str(scripts));sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'tdmpc2'))
+    try:
+        import torch
+        from common.world_model import WorldModel
+        from mechanism_forward import Config, state_hash
+        from q_planning_core import distributions, compatible
+    except ImportError as exc:
+        gaps.append(f'Reacher offline Q dependencies unavailable: {exc}; install the project inference dependencies and rerun.')
+        return pd.DataFrame(),None
+    torch.set_num_threads(2)
+    cfg=Config(**read_json(track(checkpoint/'metadata.json',sources))['config'])
+    nominal=torch.load(track(checkpoint/'model.pt',sources),map_location='cpu',weights_only=False)['model']
+    nominal_hash=sources[str((checkpoint/'model.pt').resolve())]['sha256']
+    assert not cfg.episodic and not cfg.multitask
+    def make(state):
+        model=WorldModel(cfg).to(device);model.load_state_dict(state,strict=True)
+        model.eval();model.requires_grad_(False);return model
+    frozen=make(nominal);rows=[];deep=None;started=time.monotonic()
+    dest=output/'q_inference';dest.mkdir()
+    rule=dict(task='reacher',evaluation_seeds=list(range(54000001,54000021)),
+        timestep_rule='16 evenly spaced indices from 0 to 49 in each saved Frozen episode',
+        deep_dive_rule='D0, k=2, lowest adaptation seed, lowest evaluation seed, timestep=0; no outcome-based selection',
+        terminal_rule='3 saved executed actions from timestep 0; common saved action at step 3; model rollout only, not native MPPI',
+        encoder_rule='Each model encodes the same physical observations; Joint latent coordinates are not compared',
+        scalar_decode='native common.math.two_hot_inv: symexp(expected symlog support), per Q head',
+        entropy='mean per-head categorical entropy',js='JS between mean-head probabilities and Frozen mean-head probabilities')
+    (dest/'protocol.json').write_text(json.dumps(rule,indent=2))
+    for family,k,seed,paths,banks in items:
+        data=[];tape=None;initial=None
+        for e,path in zip(range(54000001,54000021),banks):
+            with np.load(track(path,sources)) as raw:
+                assert sources[str(path.resolve())]['sha256']==bank_hashes[str(path.resolve())]
+                ix=np.linspace(0,49,16,dtype=int)
+                assert raw['observations'].shape==(51,10) and raw['actions'].shape==(50,2)
+                data.append((raw['observations'][ix],raw['actions'][ix]))
+                if e==54000001:initial=raw['observations'][0].copy();tape=raw['actions'][:4].copy()
+        tensor=lambda x:torch.as_tensor(x,dtype=torch.float32,device=device)
+        obs=tensor(np.concatenate([x[0] for x in data]));actions=tensor(np.concatenate([x[1] for x in data]))
+        models={'F':frozen}
+        for key,path in paths.items():
+            done=read_json(track(path.parent/'completion.json',sources))
+            assert done['status']=='PASS'
+            saved_hash=sources[str(track(path,sources))]['sha256']
+            # Historical D streams list snapshots separately; the unified source
+            # hash and per-snapshot identity remain authoritative for that format.
+            if done.get('snapshot_sha256'):assert done['snapshot_sha256']==saved_hash
+            payload=torch.load(path,map_location='cpu',weights_only=False)
+            identity=payload['identity']
+            assert (identity['family'],float(identity['severity']),int(identity['adaptation_seed']))==(family,k,seed)
+            if key=='J':assert payload['checkpoint_sha256']==nominal_hash and payload['transitions']==10000
+            else:assert payload['selection']['model_sha256']==nominal_hash
+            models[key]=make(nominal if key=='D' else payload['model'])
+            if key=='D':models[key]._dynamics.load_state_dict(payload['adapter']['predictor'],strict=True)
+        compatible(models)
+        before={key:state_hash(model) for key,model in models.items()}
+        archive={'symlog_support':np.linspace(cfg.vmin,cfg.vmax,cfg.num_bins),
+                 'evaluation_seed':np.repeat(np.arange(54000001,54000021),16),'timestep':np.tile(ix,20)}
+        with torch.inference_mode():
+            packs={key:distributions(model.Q(model.encode(obs,None),actions,None,return_type='all'),cfg)
+                   for key,model in models.items()}
+            torch.testing.assert_close(packs['F']['probability'],packs['D']['probability'],rtol=0,atol=1e-7)
+            for key,pack in packs.items():
+                probability=pack['probability'].cpu().numpy();archive[key+'_probability']=probability
+                archive[key+'_scalar']=pack['scalar'].cpu().numpy()
+                divergence=probability_js(probability.mean(0),packs['F']['probability'].cpu().numpy().mean(0))
+                for j,e in enumerate(range(54000001,54000021)):
+                    sl=slice(j*16,(j+1)*16)
+                    rows.append(dict(task='reacher',family=family,severity=k,adaptation_seed=seed,evaluation_seed=e,
+                        method=Q_NAMES[key],entropy=float(pack['entropy'][:,sl].mean()),
+                        scalar_q=float(pack['scalar'][:,sl].mean()),js_frozen=float(divergence[sl].mean()),
+                        abs_bellman_frozen_target=np.nan,source='new offline native forward on saved Frozen bank',samples=16))
+            if family=='D0' and k==2 and seed==53000001:
+                deep=dict(family=family,severity=k,support=archive['symlog_support'],
+                    immediate={Q_NAMES[key]:pack['probability'][:,0].cpu().numpy().mean(0) for key,pack in packs.items()},terminal={})
+                for key,model in models.items():
+                    z=model.encode(tensor(initial[None]),None)
+                    for action in tape[:3]:z=model.next(z,tensor(action[None]),None)
+                    terminal=distributions(model.Q(z,tensor(tape[3:4]),None,return_type='all'),cfg)['probability'][:,0].cpu().numpy()
+                    archive[key+'_terminal_probability']=terminal
+                    deep['terminal'][Q_NAMES[key]]=terminal.mean(0)
+            for key,model in models.items():assert before[key]==state_hash(model),'Forward inference mutated model state'
+        np.savez_compressed(dest/f'{family}-k{k:g}-seed{seed}.npz',**archive)
+        if seed==53000003:print(f'Q FORWARD PASS {family} k={k:g}: 3 streams × 20 bank seeds',flush=True)
+        del models,packs
+    table=pd.DataFrame(rows);table.to_csv(dest/'q_per_seed.csv',index=False)
+    (dest/'completion.json').write_text(json.dumps(dict(status='PASS',streams=72,observations_per_stream=320,
+        F_D_immediate_probability_invariant=True,environment_transitions=0,optimizer_steps=0,
+        seconds=time.monotonic()-started,checkpoint_sha256=nominal_hash,model_state_unchanged=True),indent=2))
+    gaps.append('Reacher bank NPZ contains observations/actions only: no per-transition reward or termination arrays. Held-out Bellman residual and MC calibration are unavailable.')
+    return table,deep
+
+
+def halfcheetah_sources(root, unified, sources, gaps):
+    c=pd.read_csv(track(unified/'canonical_records.csv',sources),low_memory=False)
+    c=c[(c.task=='halfcheetah')&c.evaluation_seed.isin(range(43000001,43000021))&
+        (c.cohort_id=='f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b')]
+    matrices={}
+    for family in ('damping','mass'):
+        for k in GRID:
+            for method in METHODS:
+                for metric,kind in [('episode_return','shifted'),('latent_mse','fixed_bank'),
+                                    ('forward_velocity','shifted'),('control_cost','shifted')]:
+                    if method=='joint' and metric=='latent_mse':continue
+                    matrix=points_for(c,family,k,method,kind,metric)
+                    if matrix is not None:matrices[(family,k,metric,method)]=matrix
+    qroot=root/'q-planning-mechanism-750k-v1'
+    if not (qroot/'immediate').is_dir():
+        gaps.append('HalfCheetah raw immediate Q archives absent; Q dashboards/deep dive cannot use summary-only exports.')
+        return matrices,pd.DataFrame(),None
+    assert read_json(track(qroot/'provenance/immediate.json',sources))['status']=='PASS'
+    raw=pd.read_csv(track(qroot/'tables/immediate_q_metrics.csv',sources),
+        usecols=['parameter','severity','adaptation_seed','evaluation_seed','method','head','timestep','q','entropy','bellman_residual'])
+    keys=['parameter','severity','adaptation_seed','evaluation_seed','timestep']
+    # Use one common, recorded Frozen Bellman target for cross-model comparison.
+    f=raw[raw.method=='F'].copy();f['target']=f.q-f.bellman_residual
+    target=f.groupby(keys,as_index=False).target.mean()
+    raw=raw.merge(target,on=keys,validate='many_to_one')
+    raw['abs_bellman_frozen_target']=(raw.q-raw.target).abs()
+    grouped=raw.groupby(keys[:-1]+['method'],as_index=False)[['q','entropy','abs_bellman_frozen_target']].mean()
+    lookup=grouped.set_index(keys[:-1]+['method']);rows=[];deep=None
+    for path in sorted((qroot/'immediate').glob('*.npz')):
+        prefix,es=path.stem.rsplit('-eval',1);parameter,tail=prefix.split('-k');ks,ss=tail.split('-seed')
+        k=float(ks);seed=int(ss);e=int(es);family='damping' if parameter=='bthigh_damping' else 'mass'
+        with np.load(track(path,sources)) as data:
+            support=data['symlog_support'];base=data['F_probability']
+            assert np.allclose(base,data['D_probability'],rtol=0,atol=1e-7)
+            for key,method in Q_NAMES.items():
+                p=data[key+'_probability'];assert np.isfinite(p).all() and np.allclose(p.sum(-1),1,atol=1e-6)
+                saved=lookup.loc[(parameter,k,seed,e,key)]
+                entropy=-(p*np.log(np.maximum(p,1e-30))).sum(-1).mean()
+                assert np.isclose(entropy,saved.entropy,rtol=1e-5,atol=1e-6)
+                rows.append(dict(task='halfcheetah',family=family,severity=k,adaptation_seed=seed,evaluation_seed=e,
+                    method=method,entropy=float(saved.entropy),scalar_q=float(saved.q),
+                    js_frozen=float(probability_js(p.mean(0),base.mean(0)).mean()),
+                    abs_bellman_frozen_target=float(saved.abs_bellman_frozen_target),
+                    source=str(path.relative_to(root)),samples=p.shape[1]))
+            if family=='damping' and k==2 and seed==42000001 and e==43000001:
+                assert data['timestep'][0]==0
+                deep=dict(family=family,severity=k,support=support,
+                    immediate={method:data[key+'_probability'][:,0].mean(0) for key,method in Q_NAMES.items()},terminal={})
+    if deep is not None:
+        path=qroot/'terminal/bthigh_damping-k2-seed42000001-eval43000001-terminal.npz'
+        if path.is_file():
+            assert read_json(track(qroot/'provenance/terminal.json',sources))['status']=='PASS'
+            with np.load(track(path,sources)) as data:
+                for key,method in Q_NAMES.items():
+                    prefix='DQ-full' if key=='DQ' else key
+                    deep['terminal'][method]=data[prefix+'_fixed_action_probability'][:,0].mean(0)
+        else:gaps.append('HalfCheetah terminal probability archive missing for preregistered candidate 0.')
+    return matrices,pd.DataFrame(rows),deep
+
+
+def summarize_matrices(task, matrices):
+    rows=[]
+    for (family,k,metric,method),matrix in matrices.items():
+        mean,lo,hi=ci(matrix,(task,family,k,metric,method))
+        rows.append(dict(task=task,family=family,severity=k,metric=metric,method=method,
+            mean=mean,ci_low=lo,ci_high=hi,n_adaptation_streams=1 if method=='frozen' else matrix.shape[0],
+            n_evaluation_seeds=matrix.shape[1],evidence='held-out control or fixed-bank prediction'))
+    return pd.DataFrame(rows)
+
+
+def summarize_q(table):
+    rows=[]
+    if table.empty:return pd.DataFrame()
+    for (task,family,k,method),group in table.groupby(['task','family','severity','method']):
+        assert group[['adaptation_seed','evaluation_seed']].duplicated().sum()==0
+        for metric in ('entropy','scalar_q','js_frozen','abs_bellman_frozen_target'):
+            if group[metric].isna().all():continue
+            matrix=group.pivot(index='adaptation_seed',columns='evaluation_seed',values=metric).to_numpy()
+            assert matrix.shape==(3,20) and np.isfinite(matrix).all()
+            m,l,h=ci(matrix,(task,family,k,method,metric))
+            rows.append(dict(task=task,family=family,severity=k,method=method,metric=metric,
+                mean=m,ci_low=l,ci_high=h,n_adaptation_streams=1 if method in ('frozen','dynamics_only') else 3,
+                n_evaluation_seeds=20,evidence='same saved observation-action bank; immediate Q'))
+    return pd.DataFrame(rows)
+
+
+def metric_panel(ax, stats, family, metric, ylabel, methods=METHODS):
+    for method in methods:
+        rows=stats[(stats.family==family)&(stats.metric==metric)&(stats.method==method)].sort_values('severity')
+        if rows.empty:continue
+        assert rows.severity.tolist()==list(GRID)
+        marker,style=METHOD_STYLE[method]
+        ax.plot(rows.severity,rows['mean'],color=COLOR[method],marker=marker,ls=style,
+                label=LABEL[method],lw=1.7,ms=6)
+        ax.fill_between(rows.severity,rows.ci_low,rows.ci_high,color=COLOR[method],alpha=.09)
+    ax.set(xlabel='Physical severity multiplier k',ylabel=ylabel)
+    ax.set_xticks(GRID);ax.axvline(1,color='#777777',ls=':',lw=.8);ax.grid(alpha=.16)
+    if metric=='latent_mse':ax.set_yscale('log')
+
+
+def dashboard(task, family, label, stats, qs, output, figures):
+    fig,axes=plt.subplots(2,2,figsize=(14,10))
+    metric_panel(axes[0,0],stats,family,'episode_return','Shifted held-out episode return ↑')
+    axes[0,0].set_title('A  Absolute control outcome')
+    metric_panel(axes[0,1],stats,family,'latent_mse','Fixed-bank one-step latent MSE ↓',METHODS[:3])
+    axes[0,1].set_title('B  Absolute prediction accuracy (log scale)')
+    axes[0,1].text(.02,.03,'Joint excluded: changed encoder / latent target',transform=axes[0,1].transAxes,fontsize=9)
+    if not qs.empty:
+        metric_panel(axes[1,0],qs,family,'entropy','Mean per-head categorical entropy (nats)')
+        axes[1,0].set_title('C  Immediate Q on shared held-out inputs')
+        axes[1,0].text(.02,.03,'Frozen = D invariant verified; no online-batch substitution',transform=axes[1,0].transAxes,fontsize=8.5)
+    else:
+        axes[1,0].axis('off');axes[1,0].text(.05,.85,'C  Q evidence unavailable\n\nSee the coverage report for missing\nmodel/bank/dependency records.',va='top',fontsize=13)
+    if not qs.empty and 'abs_bellman_frozen_target' in set(qs.metric):
+        metric_panel(axes[1,1],qs,family,'abs_bellman_frozen_target','Mean |Q − common Frozen TD target| ↓')
+        axes[1,1].set_title('D  Consistency against a shared reference target')
+        axes[1,1].text(.02,.03,'Recorded Frozen Bellman target; not Monte Carlo calibration',transform=axes[1,1].transAxes,fontsize=8.5)
+    else:
+        axes[1,1].axis('off')
+        axes[1,1].text(.04,.92,'D  Held-out Q consistency: NOT MEASURED',va='top',fontsize=13,fontweight='bold')
+        axes[1,1].text(.04,.77,'Saved Reacher bank: observations + executed actions.\n\n'
+            'Transition rewards / terminal flags are not stored.\n'
+            'No measured Bellman target or Monte Carlo return.\n\n'
+            'Immediate entropy and JS describe critic changes;\n'
+            'they cannot establish accuracy or calibration.\n\n'
+            'Needed: recorded transition rewards/terminal flags\n'
+            'for the same bank, with an explicit target policy.',va='top',fontsize=12,linespacing=1.5)
+    handles,labels=axes[0,0].get_legend_handles_labels()
+    fig.legend(handles,labels,loc='upper center',bbox_to_anchor=(.5,.945),ncol=4,frameon=False,fontsize=11)
+    fig.suptitle(f'{task.title()} — {label} | fixed severity sweep',fontsize=16,y=.99)
+    fig.text(.5,.015,'Bands: descriptive 95% bootstrap over adaptation streams and shared evaluation seeds. '
+             'Adapted methods: n=3 streams × 20 eval seeds; Frozen is one shared baseline.',ha='center',fontsize=9)
+    fig.subplots_adjust(top=.87,bottom=.10,left=.08,right=.98,hspace=.34,wspace=.25)
+    draw(output,'main',f'{task}_{family}_control_prediction_q',fig,
+         'Absolute control, prediction, matched-input Q and explicitly bounded consistency evidence',
+         ['tables/dashboard_absolute_statistics.csv','tables/dashboard_q_statistics.csv'],figures)
+
+
+def deep_dive(task, stats, deep, output, figures):
+    family=('D0' if task=='reacher' else 'damping') if deep is None else deep['family']
+    fig,axes=plt.subplots(3,2,figsize=(14,13))
+    for ax,metric,title in [(axes[0,0],'episode_return','Aggregate held-out return at k=2'),
+                            (axes[0,1],'latent_mse','Aggregate fixed-bank latent MSE at k=2')]:
+        for i,method in enumerate(METHODS):
+            rr=stats[(stats.family==family)&(stats.severity==2)&(stats.metric==metric)&(stats.method==method)]
+            if rr.empty:continue
+            r=rr.iloc[0]
+            ax.errorbar(i,r['mean'],yerr=[[max(0,r['mean']-r.ci_low)],[max(0,r.ci_high-r['mean'])]],
+                        fmt=METHOD_STYLE[method][0],color=COLOR[method],capsize=4,ms=7,label=LABEL[method])
+        ax.set(title=title,xticks=range(4),xticklabels=[LABEL[m] for m in METHODS]);ax.grid(alpha=.16)
+        if metric=='latent_mse':ax.set_yscale('log')
+    for row,kind in [(1,'immediate'),(2,'terminal')]:
+        available={} if deep is None else deep[kind]
+        if not available:
+            for ax in axes[row]:ax.axis('off');ax.text(.05,.8,f'{kind.title()} categorical Q unavailable\nSee coverage report; no values imputed.',fontsize=13)
+            continue
+        for i,method in enumerate(METHODS):
+            p=available[method];assert np.isclose(p.sum(),1,atol=1e-6)
+            marker,style=METHOD_STYLE[method]
+            axes[row,0].plot(deep['support'],p,color=COLOR[method],ls=style,marker=marker,
+                             markevery=8,ms=4,lw=1.7,label=LABEL[method])
+            js=float(probability_js(p,available['frozen']))
+            axes[row,1].bar(i,js,color=COLOR[method]);axes[row,1].text(i,js,f'{js:.3g}',ha='center',va='bottom',fontsize=9)
+        axes[row,0].set(title=f'{kind.title()} Q: actual mean-head probability mass',
+                        xlabel='Shared symlog support bin',ylabel='Probability')
+        axes[row,1].set(title=f'{kind.title()} Frozen-relative JS divergence (nats)',
+                        xticks=range(4),xticklabels=[LABEL[m] for m in METHODS],ylabel='JS; not Q accuracy')
+        for ax in axes[row]:ax.grid(alpha=.15)
+    handles,labels=axes[1,0].get_legend_handles_labels()
+    if handles:fig.legend(handles,labels,loc='upper center',bbox_to_anchor=(.5,.95),ncol=4,frameon=False)
+    terminal_rule=('saved executed action tape, H=3, common saved terminal action' if task=='reacher'
+                   else 'saved exogenous candidate 0, H=3, common Frozen terminal action')
+    fig.suptitle(f'{task.title()} Q deep dive | {family} ×2 | lowest adaptation seed, lowest eval seed, t=0',fontsize=13,y=.99)
+    fig.text(.5,.017,'Top: condition aggregates. Q panels: one result-independent physical state; not representative-effect inference.\n'
+             f'Terminal: {terminal_rule}. Joint encodes the same physical observation in its own coordinates.',ha='center',fontsize=9)
+    fig.subplots_adjust(top=.89,bottom=.10,left=.08,right=.98,hspace=.38,wspace=.26)
+    draw(output,'main',f'{task}_q_distribution_deep_dive',fig,
+         'Immediate critic change versus terminal prediction+critic change on a preregistered common state',
+         ['q_inference/protocol.json' if task=='reacher' else 'saved HalfCheetah immediate and terminal NPZ'],figures)
+
+
+def supporting_figures(tasks, effects, online, output, figures):
+    fig,axes=plt.subplots(3,2,figsize=(14,13))
+    families=[('reacher',f) for f in FAMILIES]+[('halfcheetah','damping'),('halfcheetah','mass')]
+    for (task,family),ax in zip(families,axes.flat):
+        matrices=tasks[task]
+        for pair in PAIRED_CONTRASTS:
+            means=[];lo=[];hi=[]
             for k in GRID:
-                v=rr.loc[rr.severity==k,metric].to_numpy();assert len(v)==3
-                values.append(ci(v[None,:],('q_companion',family,k,metric)))
-            line_panel(ax,GRID,[v[0] for v in values],[v[1] for v in values],[v[2] for v in values],
-                       label='D+Q online only',color=COLOR['dynamics_q'])
-            finish_axes(ax,f'{family} {FAMILY_LABEL[family]} | {title}',title)
-    axes[0,0].legend(fontsize=8)
-    fig.suptitle('Available Q companion: D+Q online training batches, transitions 8k–10k\n'
-        'HELD-OUT Q DISTRIBUTIONS UNAVAILABLE: no matched logits for JS or four-method entropy; no causal calibration claim',fontsize=12)
-    fig.subplots_adjust(left=.075,right=.99,bottom=.06,top=.91,wspace=.33,hspace=.45)
-    draw(output,'main','reacher_q_companion',fig,'Show observed online Q statistics and explicit held-out distribution coverage gap',
+                delta=matrices[(family,k,'episode_return',pair[0])]-matrices[(family,k,'episode_return',pair[1])]
+                limits,_,_=paired_ci(delta,(task,family,k,pair))
+                means.append(delta.mean());lo.append(limits[0]);hi.append(limits[1])
+            line_panel(ax,GRID,means,lo,hi,label=PAIR_LABEL[pair],color=PAIR_COLOR[pair])
+        ax.axhline(0,color='black',lw=.8);finish_axes(ax,f'{task.title()} {family}','Paired return improvement ↑')
+    axes[0,0].legend(ncol=2,fontsize=8)
+    fig.suptitle('Supporting paired effects | descriptive intervals; separate task scales; n=3 adaptation streams',fontsize=12)
+    fig.tight_layout(rect=(0,0,1,.96))
+    draw(output,'supplementary','paired_method_effects',fig,'Paired return effects support the absolute dashboards',
+         ['tables/reacher_paired_effects.csv','canonical_records.csv'],figures)
+    fig,axes=plt.subplots(4,2,figsize=(13,13),sharex=True)
+    online=online.copy();online['q_target_gap']=online.q_prediction-online.q_target
+    for i,family in enumerate(FAMILIES):
+        for j,metric in enumerate(('q_loss','q_target_gap')):
+            for h,k in enumerate(GRID):
+                curve=online[(online.family==family)&(online.severity==k)].groupby('transition')[metric].median()
+                axes[i,j].plot(curve.index,curve.values,label=f'×{k:g}',color=plt.get_cmap('viridis')(h/5),lw=1)
+            axes[i,j].set(title=f'{family} | {metric}',xlabel='Adaptation transitions',ylabel='Median across 3 streams');axes[i,j].grid(alpha=.15)
+    axes[0,0].legend(ncol=3,fontsize=8)
+    fig.suptitle('Supplement only: Reacher D+Q ONLINE training batches — not matched held-out Q inference',fontsize=12)
+    fig.tight_layout(rect=(0,0,1,.96))
+    draw(output,'supplementary','online_q_training_diagnostics',fig,'Online optimization diagnostics remain separate from held-out Q',
          ['reacher-dynamics-q-v1/comparison/update_diagnostics.csv'],figures)
 
 
-def write_reports(output, nominal, stream, canonical, figures, checkpoint, provenance):
-    gaps=[
-        ('E1','Held-out Q entropy for Frozen/D/D+Q/Joint','Reacher stores online D+Q q_entropy averages only; no matched held-out categorical logits/probabilities.'),
-        ('E2','Held-out categorical Q JS divergence','Missing matched state/action bank and per-head Q logits or probabilities for all four methods.'),
-        ('E3','Held-out Bellman residual distribution','Only online batch-mean Q prediction and target are saved; per-sample targets/residuals are absent.'),
-        ('E4','Q planning candidate ranking/score','No Reacher candidate scores or measured candidate returns were saved.'),
-        ('F1','Four-method held-out progress curve','D+Q held-out control and prediction exist only at final 10,000-transition snapshot; no intermediate D+Q held-out evaluations.'),
-        ('F3','Online action norm/control penalty/policy entropy curve','Online adaptation episode logs store return, not per-step action/penalty/entropy.'),
-        ('H2','Held-out Q shift vs control association','Requires E1/E2 matched held-out Q distributions.'),
-        ('H3','Bellman residual change vs control association','Requires E3 per-sample held-out residuals.'),
-    ]
-    caveats={
-        'reacher_absolute_performance':'Large seed variance is retained; read with the linked paired-effect figure.',
-        'reacher_paired_method_effects':'Intervals are descriptive at n=3 adaptation streams; dots show each stream.',
-        'reacher_stream_variability':'Residual includes stream–seed interaction; no independent residual replicate exists.',
-        'reacher_prediction_control':'Prediction–control association is descriptive, not causal.',
-        'reacher_q_companion':'Only online D+Q Q data exist; held-out categorical comparisons are unavailable.',
-        'reacher_methods_latent_mse_absolute':'Joint excluded because its encoder changes the latent target; logarithmic y axis.',
-        'reacher_methods_reward_decomposition':'Control reward is a negative action penalty, shown in its own panel.',
-        'reacher_q_entropy_online_by_severity':'D+Q online training batches only; not held-out or four-method Q distributions.',
-        'reacher_q_target_gap_online_by_severity':'Batch-mean prediction minus target, not a per-sample Bellman residual.',
-        'reacher_prediction_vs_control_scatter':'Descriptive association across adaptation streams, not a causal test.',
-    }
-    lines=['# Reacher Dynamics+Q figure index','',
-           'Main figures show absolute values first. Difference plots are supplementary. Every figure has PNG and SVG.',
-           '', '| Figure | Purpose | Source lineage | Caveat |', '|---|---|---|---|']
-    for f in figures:
-        caveat=caveats.get(f['id'])
-        if caveat is None and f['id'].startswith('reacher_online_q_training_diagnostics'):
-            caveat='D+Q online batch statistics only; not matched held-out Q measurements.'
-        if caveat is None and f['id'].startswith('reacher_incremental'):
-            caveat='Paired stream comparison is supplementary and descriptive at n=3 per condition.'
-        if caveat is None:
-            caveat='95% bootstrap intervals use seed-level sampling units where shown.'
-        lines.append(f"| [{f['id']}](../{f['png']}) ([SVG](../{f['svg']})) | {f['purpose']} | " +
-                     ', '.join(f'`{s}`' for s in f['sources'])+f' | {caveat} |')
-    lines+=['','## Skipped requested panels','']+[f'- {key}: {title} — {reason}' for key,title,reason in gaps]
-    (output/'reports/REACHER_DYNAMIC_Q_FIGURE_INDEX.md').write_text('\n'.join(lines)+'\n')
-    counts=stream.groupby('family').agg(n=('dq_minus_d_return','size'),improved=('dq_minus_d_return',lambda x:int((x>0).sum())),
-        mse_improved=('d_minus_dq_mse',lambda x:int((x>0).sum())),mean_return=('dq_minus_d_return','mean'))
-    summary=['# Reacher Dynamics+Q analysis summary','',
-        'Nominal validation used 340k, 670k and 1M checkpoints (not the suggested 500k/750k/950k). '
-        f'The selected nominal checkpoint is 670k, SHA256 `{checkpoint}`.',
-        '', 'All 24 physical conditions (4 variables × 6 severities) and 72 adaptation streams are retained. '
-        'Each shifted stream averages 20 matched held-out evaluation seeds. The primary figures show absolute Frozen, D, D+Q, Joint control values; Joint latent MSE is excluded from the shared-target comparison because its encoder changes.',
-        '', '## Incremental Q step, descriptive stream counts','']
-    for family,row in counts.iterrows():
-        summary.append(f'- {family} ({FAMILY_LABEL[family]}): D+Q return > D in {int(row.improved)}/{int(row.n)} streams; '
-                       f'D+Q fixed-bank MSE < D in {int(row.mse_improved)}/{int(row.n)}; '
-                       f'mean paired return difference {row.mean_return:+.5g}.')
-    summary += ['', '## Full Joint RL position at the same interaction budget', '']
-    for family in FAMILIES:
-        joint_wins=dq_wins=0
-        for k in GRID:
-            dq=points_for(canonical,family,k,'dynamics_q','shifted','episode_return').mean(axis=1)
-            joint=points_for(canonical,family,k,'joint','shifted','episode_return').mean(axis=1)
-            frozen=points_for(canonical,family,k,'frozen','shifted','episode_return').mean()
-            joint_wins+=int((joint>dq).sum());dq_wins+=int((dq>frozen).sum())
-        summary.append(f'- {family}: Joint return > D+Q in {joint_wins}/18 adaptation streams; '
-                       f'D+Q return > Frozen in {dq_wins}/18 streams.')
-    summary += ['', 'A lower one-step latent MSE is not sufficient for higher closed-loop return. '
-        'The measured D+Q−D difference is a procedure comparison: online trajectories and optimizer updates diverge, so it does not isolate critic mismatch causally. '
-        'Inspect absolute distance reward and negative control reward alongside return to see where effects cancel.',
-        '', 'Reacher has no held-out four-method categorical Q distribution or per-sample Bellman residual. '
-        'The available online D+Q Q loss, prediction−target batch mean, entropy and ensemble disagreement are training diagnostics; '
-        'they cannot establish that Q calibration improved or that a Q shift caused a return gain.',
-        '', 'Joint frequently has higher shifted return than D+Q in this 10,000-transition comparison, '
-        'but this does not show that Joint updates are necessary: optimizer budgets and updated modules differ. '
-        'The new main figures show absolute values beside seed-paired effects with individual stream estimates.',
-        '', 'Bootstrap intervals in the absolute adaptation figures resample adaptation streams and evaluation seeds hierarchically. '
-        'Frozen intervals resample its 20 unique evaluation seeds. Physical probe intervals resample five calibration seeds. '
-        'The k=1 rows across four families are nominal-physics aliases, not four independent tasks.',
-        '', f'Unified raw-to-report source: `{provenance["source_root"]}`; original input hashes are in `SOURCE_INPUTS.json`.' ]
-    (output/'reports/REACHER_DYNAMIC_Q_ANALYSIS_SUMMARY.md').write_text('\n'.join(summary)+'\n')
-    coverage=['# Reacher Dynamics+Q coverage gaps','',
-        'Completed data: 72/72 D+Q training, prediction, shifted control and nominal-retention streams; '
-        '24 severity conditions; 20 matched held-out seeds per stream. Existing raw-to-report run has zero invalid sources and documented numerical differences in historical regression checks.',
-        '', '## Missing or incomparable measurements','']
-    coverage += [f'- {key} {title}: {reason}' for key,title,reason in gaps]
-    coverage += ['', '- Joint latent self-consistency MSE uses a changed encoder and cannot share the Frozen/D/D+Q fixed latent target.',
-        '- The 340k/670k/1M checkpoint set is the audited set present in raw validation. 500k/750k/950k Reacher checkpoints are not in that validation file.',
-        '- Online Q training statistics are a different observation distribution from held-out control and prediction. They are displayed separately.',
-        '- k=1 rows for D0/D1/M0/M1 share nominal physics and are not pooled as independent physical shifts.',
-        '- Real candidate returns/regret and a full controllability Gramian were not measured; neither is inferred.']
-    (output/'reports/REACHER_DYNAMIC_Q_COVERAGE_GAPS.md').write_text('\n'.join(coverage)+'\n')
-    return gaps
-
-
-def redesign_report(output, effects, variance):
-    returns=effects[effects.metric=='episode_return']
-    dq=returns[returns.contrast=='D+Q − D']
-    correlations=dq.raw_paired_correlation.to_numpy()
-    wins=dq.positive_streams.value_counts().sort_index().to_dict()
-    v=variance[(variance.metric=='episode_return')&(variance.series=='dynamics_q')]
-    total=v.total_cell_variance.sum()
-    eval_share=v.between_evaluation_seed_variance.sum()/total
-    stream_share=v.between_adaptation_stream_variance.sum()/total
-    lines=['# Reacher visualization redesign','',
-        'The five linked main figures present absolute performance, paired improvements, variance, '
-        'prediction–control association and the available Q companion. The earlier detailed diagnostics '
-        'remain supplementary. No zoomed mean-only return figure is used.',
-        '', '## Pairing and uncertainty','',
-        'Each condition has three independently adapted streams (seeds 53000001–53000003) and '
-        '20 shared held-out evaluation seeds (54000001–54000020). D, D+Q and Joint run manifests '
-        'were checked for condition, seed, schedule and nominal checkpoint. The same integer seed '
-        'does not imply identical online trajectories after method-specific updates. Frozen is a '
-        'shared baseline, not three independent models. All effects are computed at the same '
-        'evaluation seed and corresponding prespecified adaptation seed. For distance and MSE, '
-        'positive improvement means the adapted method has a lower value.',
-        '', 'Bars in the paired figure are descriptive 95% hierarchical bootstrap intervals '
-        '(resampling 3 streams and the same 20 evaluation seed indices across streams); stream-only '
-        'and evaluation-seed-only intervals are separate columns in `reacher_paired_effects.csv`. '
-        'With only three streams, none of these intervals establishes significance. Dots are '
-        'independent stream effect means; zero is shown explicitly.',
-        '', '## Observed variance structure','',
-        f'Mean raw D+Q–D return correlation across the 24 conditions: {np.nanmean(correlations):.4f}; '
-        'the paired comparison cancels much of the shared evaluation-seed difficulty.',
-        f'Across D+Q absolute-return condition grids, {eval_share:.4%} of finite-grid cell variance '
-        f'is attributable to evaluation-seed means and {stream_share:.4%} to adaptation-stream means. '
-        'These fractions describe the saved 3×20 grid; residual variation includes stream–seed '
-        'interaction and cannot be separated further without replicated measurements.',
-        f'D+Q−D return is positive in all three streams for {wins.get(3,0)}/24 conditions, '
-        f'in two streams for {wins.get(2,0)}/24, in one for {wins.get(1,0)}/24, '
-        f'and in none for {wins.get(0,0)}/24. This is consistency, not a significance test.',
-        '', '## Q evidence boundary','',
-        'The Q companion shows D+Q online-training-batch entropy, scalar Q prediction and '
-        'batch-mean Q prediction minus target at transitions 8k–10k. No matched held-out '
-        'categorical logits or probabilities were saved for the four methods. JS divergence, '
-        'held-out entropy changes, per-sample Bellman residuals and Q-to-control causality '
-        'are therefore not reported.',
-        '', '## Files','',
-        '- `tables/reacher_paired_effects.csv`: absolute values and paired effects for each family, severity, metric and contrast.',
-        '- `tables/reacher_variance_diagnostics.csv`: seed, stream and interaction variance components plus raw paired correlations.',
-        '- `reports/REACHER_DYNAMIC_Q_FIGURE_INDEX.md`: every PNG/SVG and source lineage.',
-    ]
-    (output/'reports/REACHER_VISUALIZATION_REDESIGN.md').write_text('\n'.join(lines)+'\n')
+def dashboard_report(tasks, statistics, qs, gaps, output, figures):
+    evidence=[]
+    lines=['# Control–prediction–Q dashboard report','',
+        'Six shift-specific 2×2 dashboards and two state-level Q deep dives use one rendering API. '
+        'The x axis is the fixed severity multiplier, not time since an abrupt shift. '
+        'No simulator, adaptation update, optimizer or training run was executed.',
+        '', '## Measurement semantics','',
+        '- A: original shifted held-out episode returns. B: fixed-bank latent MSE; encoder-changing Joint is excluded.',
+        '- C: mean per-head categorical entropy on the same saved physical observations/actions. Frozen and D immediate probabilities are checked equal.',
+        '- Native Q decoding: softmax per head, expected symlog bin, then symexp. Curves show the mean-head categorical probability mass; JS compares these mixtures.',
+        '- Reacher Q uses 16 evenly spaced transitions from each of 20 saved Frozen episodes per condition, for all 3 adaptation seeds. Q checkpoints are frozen during forward inference.',
+        '- HalfCheetah Q reuses saved matched inference arrays. Its D panel uses absolute deviation from one common recorded Frozen Bellman target reconstructed from saved Q minus signed residual. This reference is not Monte Carlo calibration.',
+        '- Reacher saved NPZ banks omit reward/terminal arrays, so its D panel explicitly reports no Bellman residual. Online training-batch Q diagnostics are supplementary only.',
+        '- Deep dives use the first damping family, k=2, smallest adaptation/evaluation seed and timestep 0. Terminal selection is candidate/tape 0, independent of scores or outcomes.',
+        '- Joint re-encodes the common physical observation. Its immediate Q change may involve both encoder and critic; its latent coordinates are not assumed aligned.',
+        '- Bands resample the three adaptation streams and a shared evaluation-seed axis. n=3 limits inference; no significance claims are made. k=1 aliases are not independent tasks.',
+        '', '## Shift-family observations','']
+    for task,matrices in tasks.items():
+        families=FAMILIES if task=='reacher' else ('damping','mass')
+        st=statistics[statistics.task==task]
+        qt=qs[qs.task==task] if not qs.empty else qs
+        for family in families:
+            lines+=['',f'### {task.title()} {family}','',
+                '| k | Highest mean return | Lowest comparable MSE | D+Q−D return | Positive streams | D+Q JS / Joint JS |',
+                '|---|---|---|---:|---:|---:|']
+            for k in GRID:
+                a=st[(st.family==family)&(st.severity==k)]
+                returns=a[a.metric=='episode_return'];pred=a[a.metric=='latent_mse']
+                best=returns.loc[returns['mean'].idxmax()];low=pred.loc[pred['mean'].idxmin()]
+                delta=matrices[(family,k,'episode_return','dynamics_q')]-matrices[(family,k,'episode_return','dynamics_only')]
+                positives=int((delta.mean(1)>0).sum())
+                def qval(method,metric):
+                    if qt.empty:return np.nan
+                    r=qt[(qt.family==family)&(qt.severity==k)&(qt.method==method)&(qt.metric==metric)]
+                    return np.nan if r.empty else float(r.iloc[0]['mean'])
+                dqjs=qval('dynamics_q','js_frozen');jjs=qval('joint','js_frozen')
+                evidence.append(dict(task=task,family=family,severity=k,best_return_method=best.method,
+                    best_return=best['mean'],lowest_mse_method=low.method,lowest_mse=low['mean'],
+                    dq_minus_d_return=delta.mean(),positive_streams=positives,dq_js=dqjs,joint_js=jjs,
+                    dq_common_target_residual=qval('dynamics_q','abs_bellman_frozen_target'),
+                    frozen_common_target_residual=qval('frozen','abs_bellman_frozen_target')))
+                if task=='reacher':
+                    for metric in ('reward_dist','reward_ctrl','distance_mean','distance_final'):
+                        evidence[-1]['dq_minus_d_'+metric]=float((matrices[(family,k,metric,'dynamics_q')]-
+                            matrices[(family,k,metric,'dynamics_only')]).mean())
+                    assert np.isclose(evidence[-1]['dq_minus_d_reward_dist']+evidence[-1]['dq_minus_d_reward_ctrl'],
+                                      delta.mean(),rtol=1e-4,atol=1e-6)
+                lines.append(f'| {k:g} | {LABEL[best.method]} ({best["mean"]:.6g}) | {LABEL[low.method]} ({low["mean"]:.4g}) | '
+                             f'{delta.mean():+.5g} | {positives}/3 | {dqjs:.4g} / {jjs:.4g} |')
+            subset=evidence[-6:]
+            concordance=sum(r['best_return_method']==r['lowest_mse_method'] for r in subset)
+            stronger=sum(r['joint_js']>r['dq_js'] for r in subset if np.isfinite(r['joint_js']))
+            lines += ['',f'The highest-return method also has the lowest comparable MSE in {concordance}/6 severities. '
+                f'Joint has larger Frozen-relative immediate distribution change than D+Q in {stronger}/6 measured severities. '
+                'Distribution movement describes changed critic/representation behavior, not improved calibration. '
+                'The table shows whether that movement co-occurs with positive paired return and whether all three streams agree.']
+            if task=='reacher':
+                lines+=['Q consistency improvement remains unmeasured. The signed components below sum to D+Q−D return. '
+                        'Positive distance reward means better integrated reaching; positive control reward means a smaller action penalty. '
+                        'Negative final-distance difference means closer at the last step, which alone does not establish better episode control.',
+                        '', '| k | Δ distance reward | Δ control reward | Δ mean distance | Δ final distance |',
+                        '|---|---:|---:|---:|---:|']
+                for r in subset:
+                    lines.append(f'| {r["severity"]:g} | {r["dq_minus_d_reward_dist"]:+.5g} | {r["dq_minus_d_reward_ctrl"]:+.5g} | '
+                                 f'{r["dq_minus_d_distance_mean"]:+.5g} | {r["dq_minus_d_distance_final"]:+.5g} |')
+                reaching=sum(r['dq_minus_d_return']>0 and r['dq_minus_d_reward_dist']>0 for r in subset)
+                efficiency=sum(r['dq_minus_d_return']>0 and r['dq_minus_d_reward_ctrl']>0 for r in subset)
+                lines.append(f'Among these six severities, return gains accompany improved distance reward in {reaching} '
+                             f'and reduced action penalty in {efficiency}; both can contribute in the same condition.')
+            else:
+                lower=sum(r['dq_common_target_residual']<r['frozen_common_target_residual'] for r in subset)
+                lines.append(f'D+Q has lower common-Frozen-target residual than Frozen in {lower}/6 severities. '
+                    'This measures consistency to a fixed reference policy/value target, not the true value of an adapted policy. '
+                    'Forward velocity and control cost are reported in the supporting table; Dynamics-only velocity is unavailable where the original evaluator omitted it.')
+    pd.DataFrame(evidence).to_csv(output/'tables/dashboard_condition_evidence.csv',index=False)
+    lines+=['','## Coverage and unproven claims','']+['- '+g for g in gaps]
+    lines+=['- No actual Monte Carlo Q calibration or actual candidate return/regret is available.',
+        '- Reacher terminal traces use recorded executed action tapes; HalfCheetah terminal arrays use saved exogenous candidate tapes. They are not the same experiment and are not pooled.',
+        '- Cross-task raw returns and scalar Q magnitudes have different scales and are never pooled.',
+        '', '## Figure index','']
+    lines += [f'- [{f["id"]}](../{f["png"]}) ([SVG](../{f["svg"]})): {f["purpose"]}.' for f in figures]
+    (output/'reports/CONTROL_PREDICTION_Q_DASHBOARD_REPORT.md').write_text('\n'.join(lines)+'\n')
 
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--results-root',type=Path,required=True)
-    p.add_argument('--unified-source',type=Path,required=True,help='Completed raw-to-report output with canonical_records.csv')
+    p.add_argument('--unified-source',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--device',default='cpu',help='Offline Q forward device; no training or environment rollout')
+    p.add_argument('--q-cache',type=Path,help='Reuse raw Reacher Q arrays from a completed dashboard output after input hash checks')
     a=p.parse_args(argv)
     root=a.results_root.resolve();unified=a.unified_source.resolve();output=a.output.resolve()
     if output.exists():raise ValueError(f'Output exists: {output}')
     checkpoint,provenance=validate(root,unified)
     nominal,physical,frozen,paired,online,canonical=load(root,unified,checkpoint)
     (output/'tables').mkdir(parents=True);(output/'reports').mkdir()
+    sources={};gaps=[];figures=[];started=time.monotonic()
+    for path in (unified/'canonical_records.csv',unified/'SOURCE_PROVENANCE.json',
+                 root/'reacher-dynamics-q-v1/comparison/four_way_per_seed.csv',
+                 root/'reacher-dynamics-q-v1/comparison/update_diagnostics.csv'):
+        track(path,sources)
     canonical_export(canonical,output)
-    figures=[]
-    nominal_figures(root,nominal,output,figures)
-    physical_figures(physical,output,figures)
-    frozen_figures(frozen,output,figures)
-    method_figures(canonical,output,figures)
-    q_figures(online,output,figures)
-    stream=supplementary(paired,output,figures)
-    effects,variance,matrices=paired_evidence(paired,online,output)
-    redesigned_figures(effects,variance,matrices,online,stream,output,figures)
-    redesign_report(output,effects,variance)
-    gaps=write_reports(output,nominal,stream,canonical,figures,checkpoint,provenance)
-    inputs=[root/'reacher/preview-v1/nominal-home-01/reacher_checkpoint_validation.csv',
-        root/'reacher/preview-v1/probe-home-01/reacher_physical_response.csv',
-        root/'reacher/preview-v1/frozen-home-01/reacher_frozen_severity.csv',
-        root/'reacher-dynamics-q-v1/comparison/four_way_per_seed.csv',
-        root/'reacher-dynamics-q-v1/comparison/update_diagnostics.csv',
-        unified/'canonical_records.csv',unified/'SOURCE_PROVENANCE.json']
-    (output/'SOURCE_INPUTS.json').write_text(json.dumps({str(x):sha256(x) for x in inputs},indent=2))
-    (output/'manifest.json').write_text(json.dumps(dict(status='PASS_WITH_COVERAGE_GAPS',
-        source_root=str(root),unified_source=str(unified),checkpoint_sha256=checkpoint,
-        no_training_or_simulator=True,figures=len(figures),skipped=len(gaps),
-        seed_unit='adaptation_stream_hierarchical_evaluation_seed',source_files_unchanged=True),indent=2))
-    (output/'completion.json').write_text(json.dumps(dict(status='PASS_WITH_COVERAGE_GAPS',
-        figures=len(figures),png=len(list(output.rglob('*.png'))),svg=len(list(output.rglob('*.svg'))),
-        skipped=[g[0] for g in gaps],conditions=24,adaptation_streams=72,invalid_sources=0),indent=2))
-    print(f'PASS_WITH_COVERAGE_GAPS: {len(figures)} figures, 24 conditions, 72 streams; {output}')
+    effects,variance,reacher=paired_evidence(paired,online,output)
+    rq,rd=(reuse_reacher_q(a.q_cache.resolve(),root,output,sources,gaps) if a.q_cache else
+           reacher_q_inference(root,output,a.device,sources,gaps))
+    hc,hq,hd=halfcheetah_sources(root,unified,sources,gaps)
+    tasks={'reacher':reacher,'halfcheetah':hc}
+    stats=pd.concat([summarize_matrices(task,matrix) for task,matrix in tasks.items()],ignore_index=True)
+    allq=pd.concat([rq,hq],ignore_index=True);qstats=summarize_q(allq)
+    stats.to_csv(output/'tables/dashboard_absolute_statistics.csv',index=False)
+    stats[stats.metric.isin(['episode_return','distance_mean','distance_final','reward_dist','reward_ctrl',
+                            'forward_velocity','control_cost'])].to_csv(output/'tables/control_reward_support.csv',index=False)
+    allq.to_csv(output/'tables/dashboard_q_per_seed.csv',index=False)
+    qstats.to_csv(output/'tables/dashboard_q_statistics.csv',index=False)
+    for task,labels in [('reacher',FAMILY_LABEL),('halfcheetah',{'damping':'bthigh damping','mass':'torso mass'})]:
+        st=stats[stats.task==task];qt=qstats[qstats.task==task] if not qstats.empty else qstats
+        for family,label in labels.items():dashboard(task,family,label,st,qt,output,figures)
+        deep_dive(task,st,rd if task=='reacher' else hd,output,figures)
+    supporting_figures(tasks,effects,online,output,figures)
+    dashboard_report(tasks,stats,qstats,gaps,output,figures)
+    for path,info in sources.items():
+        stat=Path(path).stat();assert (stat.st_size,stat.st_mtime_ns)==(info['size'],info['mtime_ns']),path
+        if Path(path).is_relative_to(root):
+            rel=str(Path(path).relative_to(root))
+            if path.endswith('.pt') and rel in provenance['files']:assert info['sha256']==provenance['files'][rel],path
+    (output/'SOURCE_INPUTS.json').write_text(json.dumps(sources,indent=2))
+    status='PASS_WITH_COVERAGE_GAPS' if gaps else 'PASS'
+    manifest=dict(status=status,source_root=str(root),unified_source=str(unified),checkpoint_sha256=checkpoint,
+        figures=len(figures),source_files_unchanged=True,environment_transitions=0,optimizer_steps=0,
+        read_only_offline_q_inference=True,q_device=a.device,seconds=time.monotonic()-started,
+        inference_unit='adaptation stream and shared evaluation seed; observations and Q heads are not independent replicates',
+        gaps=gaps,source_file_sha256=sha256(Path(__file__)))
+    (output/'manifest.json').write_text(json.dumps(manifest,indent=2))
+    (output/'completion.json').write_text(json.dumps(dict(status=status,figures=len(figures),
+        png=len(list(output.rglob('*.png'))),svg=len(list(output.rglob('*.svg'))),
+        reacher_conditions=24,halfcheetah_conditions=12,reacher_q_streams=0 if rq.empty else 72,
+        invalid_sources=0,environment_transitions=0,optimizer_steps=0),indent=2))
+    print(f'{status}: {len(figures)} figures; {output}',flush=True)
 
 
 if __name__=='__main__':main()
