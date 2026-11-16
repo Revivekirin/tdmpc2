@@ -363,8 +363,7 @@ def reuse_reacher_q(cache, root, output, sources, gaps):
     table.to_csv(dest/'q_per_seed.csv',index=False)
     (dest/'protocol.json').write_text((cache/'q_inference/protocol.json').read_text())
     (dest/'completion.json').write_text(json.dumps(dict(status='PASS',cache_source=str(cache),
-        streams=72,F_D_immediate_probability_invariant=True,new_forward_calls=0),indent=2))
-    gaps.append('Reacher held-out Bellman residual unavailable: saved bank lacks per-transition reward/terminal arrays.')
+        streams=72,F_D_immediate_probability_invariant=True,reused_immediate_forward_calls=0),indent=2))
     return table,deep
 
 
@@ -482,8 +481,91 @@ def reacher_q_inference(root, output, device, sources, gaps):
     (dest/'completion.json').write_text(json.dumps(dict(status='PASS',streams=72,observations_per_stream=320,
         F_D_immediate_probability_invariant=True,environment_transitions=0,optimizer_steps=0,
         seconds=time.monotonic()-started,checkpoint_sha256=nominal_hash,model_state_unchanged=True),indent=2))
-    gaps.append('Reacher bank NPZ contains observations/actions only: no per-transition reward or termination arrays. Held-out Bellman residual and MC calibration are unavailable.')
     return table,deep
+
+
+def reacher_q_consistency(root, output, table, sources, device):
+    """Observed Frozen rewards plus a common Frozen next-action Q bootstrap.
+
+    This is a fixed-behavior one-step diagnostic, not MC calibration or the
+    method-specific TD-MPC2 training target. The last step is omitted because
+    the saved action tape has no next action after TimeLimit truncation.
+    """
+    import torch
+    scripts=Path(__file__).resolve().parents[1]/'scripts'
+    model_dir=Path(__file__).resolve().parents[3]/'tdmpc2'
+    sys.path.insert(0,str(scripts));sys.path.insert(0,str(model_dir))
+    from common.world_model import WorldModel
+    from mechanism_forward import Config,state_hash
+    from q_planning_core import distributions
+
+    frozen_dir=root/'reacher/preview-v1/frozen-home-01'
+    index=pd.read_csv(track(frozen_dir/'reacher_frozen_severity.csv',sources))
+    steps=pd.read_csv(track(frozen_dir/'steps.csv',sources),
+                      usecols=['family','severity','seed','t','reward','terminated','truncated'])
+    assert len(steps)==24*20*50 and not steps.duplicated(['family','severity','seed','t']).any()
+    step_lookup=steps.set_index(['family','severity','seed']).sort_index()
+    bank_lookup=index.set_index(['family','severity','seed'])
+    checkpoint=root/'reacher-full-01/checkpoint-000670000'
+    cfg=Config(**read_json(track(checkpoint/'metadata.json',sources))['config'])
+    gamma=min(max(1-cfg.discount_denom/cfg.episode_length,cfg.discount_min),cfg.discount_max)
+    assert np.isclose(gamma,.95) and cfg.episode_length==50
+    nominal=torch.load(track(checkpoint/'model.pt',sources),map_location='cpu',weights_only=False)['model']
+    model=WorldModel(cfg).to(device);model.load_state_dict(nominal,strict=True)
+    model.eval();model.requires_grad_(False);before=state_hash(model)
+    tensor=lambda x:torch.as_tensor(x,dtype=torch.float32,device=device)
+    updated=[];details=[]
+    for family in FAMILIES:
+        for k in GRID:
+            next_obs=[];next_action=[];reward=[]
+            for e in range(54000001,54000021):
+                record=bank_lookup.loc[(family,k,e)]
+                path=track(frozen_dir/record.data_file,sources)
+                assert sources[str(path)]['sha256']==record.data_sha256
+                with np.load(path) as bank:
+                    ix=np.linspace(0,49,16,dtype=int);usable=ix[ix<49]
+                    next_obs.append(bank['observations'][usable+1])
+                    next_action.append(bank['actions'][usable+1])
+                sr=step_lookup.loc[(family,k,e)].sort_values('t')
+                assert np.array_equal(sr.t.to_numpy(),np.arange(50))
+                assert not sr.iloc[:49].terminated.any() and not sr.iloc[:49].truncated.any()
+                assert bool(sr.iloc[-1].truncated) and not bool(sr.iloc[-1].terminated)
+                assert np.isclose(sr.reward.sum(),record.episode_return,rtol=1e-9,atol=1e-9)
+                reward.append(sr.reward.to_numpy()[usable])
+            with torch.inference_mode():
+                qnext=distributions(model.Q(model.encode(tensor(np.concatenate(next_obs)),None),
+                                tensor(np.concatenate(next_action)),None,return_type='all'),cfg)['scalar']
+                qnext=qnext.mean(0).cpu().numpy().reshape(20,len(usable))
+            target=np.asarray(reward)+gamma*qnext
+            for seed in range(53000001,53000004):
+                archive=output/f'q_inference/{family}-k{k:g}-seed{seed}.npz'
+                with np.load(archive) as data:
+                    assert np.array_equal(data['evaluation_seed'],np.repeat(np.arange(54000001,54000021),16))
+                    assert np.array_equal(data['timestep'],np.tile(ix,20))
+                    for key,method in Q_NAMES.items():
+                        current=data[key+'_scalar'].mean(0).reshape(20,16)[:,ix<49]
+                        residual=np.abs(current-target)
+                        for j,e in enumerate(range(54000001,54000021)):
+                            updated.append((family,k,seed,e,method,float(residual[j].mean())))
+                        details.append(dict(family=family,severity=k,adaptation_seed=seed,method=method,
+                                            mean_absolute_residual=float(residual.mean()),samples=residual.size))
+    assert before==state_hash(model),'Read-only Q inference mutated Frozen model'
+    result=pd.DataFrame(updated,columns=['family','severity','adaptation_seed','evaluation_seed','method',
+                                         'abs_bellman_frozen_target'])
+    assert len(result)==72*20*4 and not result.duplicated(result.columns[:-1].tolist()).any()
+    table=table.drop(columns='abs_bellman_frozen_target').merge(result,
+        on=['family','severity','adaptation_seed','evaluation_seed','method'],validate='one_to_one')
+    assert table.abs_bellman_frozen_target.notna().all()
+    table.to_csv(output/'q_inference/q_per_seed.csv',index=False)
+    pd.DataFrame(details).to_csv(output/'tables/reacher_q_consistency.csv',index=False)
+    completion=read_json(output/'q_inference/completion.json')
+    completion.update(fixed_behavior_td_samples_per_stream=20*len(usable),
+        fixed_behavior_td_target='observed Frozen r_t + gamma * mean_head Q_F(o[t+1], a[t+1]); t<49',
+        discount=gamma,frozen_bootstrap_inputs=24*20*len(usable),
+        monte_carlo_calibration='NOT_MEASURED')
+    completion.pop('new_forward_calls',None)
+    (output/'q_inference/completion.json').write_text(json.dumps(completion,indent=2))
+    return table
 
 
 def halfcheetah_sources(root, unified, sources, gaps):
@@ -602,17 +684,18 @@ def dashboard(task, family, label, stats, qs, output, figures):
     if not qs.empty and 'abs_bellman_frozen_target' in set(qs.metric):
         metric_panel(axes[1,1],qs,family,'abs_bellman_frozen_target','Mean |Q − common Frozen TD target| ↓')
         axes[1,1].set_title('D  Consistency against a shared reference target')
-        axes[1,1].text(.02,.03,'Recorded Frozen Bellman target; not Monte Carlo calibration',transform=axes[1,1].transAxes,fontsize=8.5)
+        note=('Observed Frozen reward + next-action Frozen Q; t<49' if task=='reacher' else
+              'Recorded Frozen Bellman target')
+        axes[1,1].text(.02,.03,note+'; not MC calibration',transform=axes[1,1].transAxes,fontsize=8.5)
     else:
         axes[1,1].axis('off')
         axes[1,1].text(.04,.92,'D  Held-out Q consistency: NOT MEASURED',va='top',fontsize=13,fontweight='bold')
-        axes[1,1].text(.04,.77,'Saved Reacher bank: observations + executed actions.\n\n'
-            'Transition rewards / terminal flags are not stored.\n'
-            'No measured Bellman target or Monte Carlo return.\n\n'
+        axes[1,1].text(.04,.77,'Saved Reacher inputs or step records unavailable.\n\n'
+            'No matched one-step target or Monte Carlo return.\n\n'
             'Immediate entropy and JS describe critic changes;\n'
             'they cannot establish accuracy or calibration.\n\n'
-            'Needed: recorded transition rewards/terminal flags\n'
-            'for the same bank, with an explicit target policy.',va='top',fontsize=12,linespacing=1.5)
+            'Needed: matched rewards, next observations/actions\n'
+            'and an explicit target policy.',va='top',fontsize=12,linespacing=1.5)
     handles,labels=axes[0,0].get_legend_handles_labels()
     fig.legend(handles,labels,loc='upper center',bbox_to_anchor=(.5,.945),ncol=4,frameon=False,fontsize=11)
     fig.suptitle(f'{task.title()} — {label} | fixed severity sweep',fontsize=16,y=.99)
@@ -712,7 +795,7 @@ def dashboard_report(tasks, statistics, qs, gaps, output, figures):
         '- Native Q decoding: softmax per head, expected symlog bin, then symexp. Curves show the mean-head categorical probability mass; JS compares these mixtures.',
         '- Reacher Q uses 16 evenly spaced transitions from each of 20 saved Frozen episodes per condition, for all 3 adaptation seeds. Q checkpoints are frozen during forward inference.',
         '- HalfCheetah Q reuses saved matched inference arrays. Its D panel uses absolute deviation from one common recorded Frozen Bellman target reconstructed from saved Q minus signed residual. This reference is not Monte Carlo calibration.',
-        '- Reacher saved NPZ banks omit reward/terminal arrays, so its D panel explicitly reports no Bellman residual. Online training-batch Q diagnostics are supplementary only.',
+        '- Reacher NPZ banks omit rewards, but the matching Frozen steps.csv supplies observed rewards and termination flags. D uses r_t + gamma Q_F(o[t+1], a[t+1]) for t<49 with gamma=0.95 and a mean-head Frozen bootstrap. The last step is omitted because the saved action tape ends at TimeLimit truncation. This is a fixed-behavior, common-reference one-step diagnostic, not the method-specific training target or Monte Carlo calibration. Online Q training diagnostics are supplementary only.',
         '- Deep dives use the first damping family, k=2, smallest adaptation/evaluation seed and timestep 0. Terminal selection is candidate/tape 0, independent of scores or outcomes.',
         '- Joint re-encodes the common physical observation. Its immediate Q change may involve both encoder and critic; its latent coordinates are not assumed aligned.',
         '- Bands resample the three adaptation streams and a shared evaluation-seed axis. n=3 limits inference; no significance claims are made. k=1 aliases are not independent tasks.',
@@ -757,7 +840,10 @@ def dashboard_report(tasks, statistics, qs, gaps, output, figures):
                 'Distribution movement describes changed critic/representation behavior, not improved calibration. '
                 'The table shows whether that movement co-occurs with positive paired return and whether all three streams agree.']
             if task=='reacher':
-                lines+=['Q consistency improvement remains unmeasured. The signed components below sum to D+Q−D return. '
+                lower=sum(r['dq_common_target_residual']<r['frozen_common_target_residual'] for r in subset)
+                lines += [f'D+Q has lower fixed-Frozen-behavior one-step residual than Frozen in {lower}/6 severities. '
+                        'This is agreement with a shared reference target, not proof of improved Q accuracy for the adapted policy.',
+                        'The signed components below sum to D+Q−D return. '
                         'Positive distance reward means better integrated reaching; positive control reward means a smaller action penalty. '
                         'Negative final-distance difference means closer at the last step, which alone does not establish better episode control.',
                         '', '| k | Δ distance reward | Δ control reward | Δ mean distance | Δ final distance |',
@@ -806,6 +892,9 @@ def main(argv=None):
     effects,variance,reacher=paired_evidence(paired,online,output)
     rq,rd=(reuse_reacher_q(a.q_cache.resolve(),root,output,sources,gaps) if a.q_cache else
            reacher_q_inference(root,output,a.device,sources,gaps))
+    if not rq.empty:
+        rq=reacher_q_consistency(root,output,rq,sources,a.device)
+        gaps.append('Reacher fixed-behavior one-step Q residual is measured; independent Monte Carlo Q calibration and adapted-policy-specific targets are not measured.')
     hc,hq,hd=halfcheetah_sources(root,unified,sources,gaps)
     tasks={'reacher':reacher,'halfcheetah':hc}
     stats=pd.concat([summarize_matrices(task,matrix) for task,matrix in tasks.items()],ignore_index=True)
