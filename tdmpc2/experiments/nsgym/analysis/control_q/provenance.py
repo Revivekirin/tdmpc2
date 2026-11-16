@@ -21,8 +21,10 @@ def relocate(path, root):
     return moved if not direct.is_file() and moved.is_file() else direct
 
 
-def verified_artifact(root, name):
-    source=discover(root,name)
+def verified_artifact(root, name, source=None):
+    source=Path(source).resolve() if source is not None else discover(root,name)
+    require(source.is_dir(), f'Missing {name} directory: {source}')
+    require(read(source/'completion.json')['status']=='PASS', f'Incomplete {name}: {source}')
     validation=source/'NUMERICAL_VALIDATION.json'
     require(validation.is_file() and read(validation)['status']=='PASS','Missing numerical validation: '+name)
     records=read(source/'SOURCE_INPUTS.json');verified={};historical_code=[];optional_missing=[]
@@ -50,11 +52,11 @@ def audit(root,out):
     from .models import Sources,inventory
     require(not out.exists(),'Audit output must be new');out.mkdir(parents=True)
     src=Sources();jobs,configs,banks,gaps=inventory(root,src,False)
-    artifacts={};errors=list(gaps)
-    for name in ('q-terminal-planning-v1','q-terminal-planning-presentation-v2','q-decision-relevance-v1'):
-        try:
-            source,record=verified_artifact(root,name);artifacts[name]=dict(path=str(source),**record)
-        except (ValueError,OSError,KeyError) as exc:errors.append(dict(artifact=name,error=str(exc)))
-    write(out/'manifest.json',dict(sources=src.files,artifacts=artifacts,configs=configs))
-    write(out/'completion.json',dict(status='PARTIAL' if errors else 'PASS',streams=len(jobs),valid_streams=sum(j['valid'] for j in jobs),errors=errors))
+    errors=list(gaps)
+    # Earlier reports are output caches. A fresh run can derive them from the
+    # validated checkpoints, snapshots and held-out transition banks above.
+    write(out/'manifest.json',dict(sources=src.files,configs=configs,
+                                   historical_q_outputs_required=False))
+    write(out/'completion.json',dict(status='PARTIAL' if errors else 'PASS',streams=len(jobs),valid_streams=sum(j['valid'] for j in jobs),errors=errors,
+                                     historical_q_outputs_required=False))
     return not errors

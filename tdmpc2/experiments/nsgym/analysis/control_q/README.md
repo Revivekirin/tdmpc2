@@ -52,14 +52,19 @@ python -m experiments.nsgym.analysis.control_q.run audit \
   --results-root "$RESULTS" --output "$RUN/audit"
 
 python -m experiments.nsgym.analysis.control_q.run q-diagnostics \
-  --results-root "$RESULTS" --output "$RUN/q-cache" --reuse-validated
+  --results-root "$RESULTS" --output "$RUN/q-diagnostics" --device cpu
 python -m experiments.nsgym.analysis.control_q.run planner-diagnostics \
-  --results-root "$RESULTS" --output "$RUN/planner-cache" --reuse-validated
+  --results-root "$RESULTS" --q-source "$RUN/q-diagnostics" \
+  --output "$RUN/planner-diagnostics" --device cpu
 ```
 
-Audit/caches do not interact with a simulator. Stop on any failure; do not bypass
-hash checks. Missing optional historical caches are allowed only if their original
-inventory explicitly says `required=False`.
+Audit reads original checkpoints, adaptation snapshots and held-out banks; it does
+not require previously generated Q result folders. Fresh `q-diagnostics` computes
+Q and fixed-candidate results from those raw inputs. Fresh `planner-diagnostics`
+first renders presentation summaries from `--q-source`, then computes native MPPI
+diagnostics. These CPU stages may take many minutes. They do not interact with a
+simulator. `--reuse-validated` is an optional cache path only when the older
+completed results are present; it is not part of a fresh analysis.
 
 New smoke: four predeclared 2× streams, first historical evaluation seed, both
 controllers: 8 episodes, 4,200 environment transitions. Exact historical D+Q return
@@ -95,9 +100,12 @@ are resolved):
 ```bash
 python -m experiments.nsgym.analysis.control_q.run integrate-report \
   --results-root "$RESULTS" --swap-source "$RUN/q-swap" \
+  --q-source "$RUN/q-diagnostics" \
+  --presentation-source "$RUN/planner-diagnostics-presentation" \
+  --planner-source "$RUN/planner-diagnostics" \
   --output "$RUN/report"
 ```
 
-`all` sequences audit → validated existing diagnostics → smoke → full Q-swap →
+`all` sequences audit → fresh Q diagnostics → fresh presentation and planner diagnostics → smoke → full Q-swap →
 report. `all --smoke` stops after smoke. `--validate-only` performs only the source
 audit. All outputs must be new; existing sources/checkpoints are read-only.

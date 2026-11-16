@@ -31,6 +31,16 @@ def test_historical_relocation_never_uses_filename_alone(tmp_path):
     with pytest.raises(ValueError):relocate('/other/b.csv',tmp_path)
 
 
+def test_raw_audit_does_not_require_old_q_outputs(tmp_path, monkeypatch):
+    from experiments.nsgym.analysis.control_q import models, provenance
+    monkeypatch.setattr(models, 'inventory', lambda root, src, smoke: ([{'valid': True}], {}, {}, []))
+    assert provenance.audit(tmp_path, tmp_path/'new-audit')
+    from experiments.nsgym.analysis.control_q.metrics import read
+    result=read(tmp_path/'new-audit/completion.json')
+    assert result['status']=='PASS'
+    assert result['historical_q_outputs_required'] is False
+
+
 def test_online_swap_preserves_target_and_source():
     import torch
     from copy import deepcopy

@@ -11,11 +11,14 @@ from ..provenance import verified_artifact
 from .aggregate import return_bridge
 
 
-def integrate(root,out,swap_source=None):
+def integrate(root,out,swap_source=None,q_source=None,presentation_source=None,planner_source=None):
     require(not out.exists() or {p.name for p in out.iterdir()} <= {'reports','validation'},'Report output must be new or contain only pre-report audits')
     verified={}
-    for name in ('q-terminal-planning-v1','q-terminal-planning-presentation-v2','q-decision-relevance-v1'):
-        verified[name]=verified_artifact(root,name)
+    paths={'q-terminal-planning-v1':q_source,
+           'q-terminal-planning-presentation-v2':presentation_source,
+           'q-decision-relevance-v1':planner_source}
+    for name,path in paths.items():
+        verified[name]=verified_artifact(root,name,path)
     for sub in ('tables','figures/main','figures/supplementary','provenance'):(out/sub).mkdir(parents=True)
     v2=verified['q-terminal-planning-presentation-v2'][0]
     historical=pd.read_csv(v2/'tables/paired_heldout_returns.csv')

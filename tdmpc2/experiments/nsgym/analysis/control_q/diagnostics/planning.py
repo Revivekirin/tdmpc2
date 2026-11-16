@@ -121,7 +121,7 @@ def shared_score(model,cfg,gamma,obs,row):
     return reward,gamma**cfg.horizon*q
 
 
-def run(root,source,out):
+def run(root,source,out,presentation_source=None):
     import torch
     from q_planning_core import ReadOnlyHybrid
     torch.set_num_threads(2);started=time.monotonic();src=Sources()
@@ -134,9 +134,12 @@ def run(root,source,out):
     done=read(src.track(source/'completion.json','v1 completion'))
     validation=read(src.track(source/'NUMERICAL_VALIDATION.json','v1 validation'))
     require(done['status']=='PASS' and validation['status']=='PASS','v1 incomplete')
-    matches=[p.parent for p in root.rglob('completion.json') if p.parent.name=='q-terminal-planning-presentation-v2']
-    require(len(matches)==1,'Locate one completed v2 presentation source')
-    v2=matches[0]
+    if presentation_source is None:
+        matches=[p.parent for p in root.rglob('completion.json') if p.parent.name=='q-terminal-planning-presentation-v2']
+        require(len(matches)==1,'Locate one completed v2 presentation source')
+        v2=matches[0]
+    else:
+        v2=Path(presentation_source).resolve()
     require(read(src.track(v2/'completion.json','v2 completion'))['status']=='PASS','v2 incomplete')
     require(read(src.track(v2/'NUMERICAL_VALIDATION.json','v2 validation'))['status']=='PASS','v2 invalid')
     previous=read(src.track(source/'SOURCE_INPUTS.json','v1 provenance'))
