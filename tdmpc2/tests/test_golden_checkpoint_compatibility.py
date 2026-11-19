@@ -1,6 +1,7 @@
 """Read-only historical checkpoint inventory and temporary serialization round-trips."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -10,8 +11,13 @@ import pytest
 import torch
 
 PROJECT = Path(__file__).resolve().parents[1]
-REPOSITORY = PROJECT.parent
 GOLDEN = PROJECT / 'tests/fixtures/research_checkpoint_compatibility.json'
+NOMINAL = 'nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000/model.pt'
+if os.environ.get('TD_MPC2_GOLDEN_RESULTS_ROOT'):
+    RESULTS_ROOT = Path(os.environ['TD_MPC2_GOLDEN_RESULTS_ROOT']).expanduser()
+else:
+    candidates = [PROJECT.parent/'results', PROJECT/'results']
+    RESULTS_ROOT = next((root for root in candidates if (root/NOMINAL).is_file()), candidates[0])
 SOURCES = {
     'nominal_model': 'results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000/model.pt',
     'nominal_optimizers': 'results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000/optimizers.pt',
@@ -61,7 +67,7 @@ def tree_digest(value):
 
 
 def inspect_source(label, relative):
-    source = REPOSITORY / relative
+    source = RESULTS_ROOT / Path(relative).relative_to('results')
     if not source.is_file():
         return dict(status='BLOCKED_MISSING_SOURCE', path=relative)
     before_hash = file_hash(source)
@@ -97,13 +103,19 @@ def test_historical_checkpoint_roundtrip(label):
 
 
 def test_nominal_metadata_and_adaptation_parent_hashes():
-    checkpoint=REPOSITORY/'results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000'
+    checkpoint=RESULTS_ROOT/'nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000'
+    required=[checkpoint/'metadata.json', checkpoint/'model.pt', checkpoint/'optimizers.pt']
+    required.extend(RESULTS_ROOT/Path(SOURCES[label]).relative_to('results') for label in
+                    ('decision_snapshot','dynamics_q_snapshot','joint_snapshot'))
+    missing=[str(path) for path in required if not path.is_file()]
+    if missing:
+        pytest.skip('Historical checkpoint unavailable: '+', '.join(missing))
     metadata=json.loads((checkpoint/'metadata.json').read_text())
     nominal_model_hash=file_hash(checkpoint/'model.pt')
     assert metadata['model_sha256']==nominal_model_hash
     assert metadata['optimizer_sha256']==file_hash(checkpoint/'optimizers.pt')
     for label in ('decision_snapshot','dynamics_q_snapshot','joint_snapshot'):
-        payload=torch.load(REPOSITORY/SOURCES[label],map_location='cpu',weights_only=False)
+        payload=torch.load(RESULTS_ROOT/Path(SOURCES[label]).relative_to('results'),map_location='cpu',weights_only=False)
         assert payload['checkpoint_sha256']==nominal_model_hash, label
 
 

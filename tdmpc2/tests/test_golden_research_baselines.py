@@ -9,6 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 import pickle
+import platform
 import random
 import sys
 
@@ -28,7 +29,13 @@ from common.stage3a import EpisodeAdapter, equal_state
 import run_dynamics_q as dq_runner
 from test_planner_instrumentation import agent as planner_agent, load_planner
 
-GOLDEN = PROJECT / "tests/fixtures/research_numerical_baselines.json"
+CPU_GOLDEN = PROJECT / "tests/fixtures/research_numerical_baselines.json"
+if platform.system() == 'Darwin' and torch.__version__ == '2.14.0':
+    GOLDEN = CPU_GOLDEN
+else:
+    runtime = f'{platform.system().lower()}_{platform.machine().lower()}_torch_{torch.__version__}'
+    runtime = runtime.replace('.', '_').replace('+', '_')
+    GOLDEN = PROJECT / 'tests/fixtures' / f'research_numerical_baselines_{runtime}.json'
 
 
 def digest_tensor(x):
@@ -260,6 +267,7 @@ def compare(expected, actual, path='fixture'):
 
 
 def test_golden_research_numerical_baselines():
+    assert GOLDEN.exists(), f'Missing platform-specific golden fixture: {GOLDEN}; record it before refactoring'
     expected=json.loads(GOLDEN.read_text())
     assert expected['versions']==dict(torch=torch.__version__.split('+')[0],numpy=np.__version__)
     compare(expected,observation_bundle())
@@ -269,7 +277,7 @@ def test_dynamics_q_schedule_and_ownership_contract():
     assert expected_updates(64)==0
     assert list(range(75,3001,25))[-1]==3000
     assert len(range(75,3001,25))==118==expected_updates(3000)
-    result=json.loads(GOLDEN.read_text())['dynamics_q']
+    result=json.loads(CPU_GOLDEN.read_text())['dynamics_q']
     assert result['counters']==[75,1,1]
     assert result['parameter_changes']==dict(encoder=False,dynamics=True,reward=False,
                                              q=True,target_q=True,actor=False)
@@ -282,5 +290,9 @@ def test_dynamics_q_schedule_and_ownership_contract():
 
 if __name__ == '__main__' and '--record' in sys.argv:
     assert not GOLDEN.exists(), 'Refuse to overwrite an existing golden fixture'
-    GOLDEN.write_text(json.dumps(observation_bundle(),indent=2,sort_keys=True,allow_nan=False)+'\n')
+    result = observation_bundle()
+    reference = json.loads(CPU_GOLDEN.read_text())
+    assert result['baseline_head'] == reference['baseline_head']
+    assert result['source_sha256'] == reference['source_sha256'], 'Source differs from audited baseline'
+    GOLDEN.write_text(json.dumps(result,indent=2,sort_keys=True,allow_nan=False)+'\n')
     print(GOLDEN)
