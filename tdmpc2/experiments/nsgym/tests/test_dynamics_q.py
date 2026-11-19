@@ -283,8 +283,10 @@ class EvaluationContract(unittest.TestCase):
         c,_=runner.configuration()
         # Available local baseline; production preflight additionally audits all
         # original completed adaptation logs and hash-linked raw evaluation data.
-        p=ROOT.parent/'results/nsgym/physical-severity-750k-v1/frozen/manifest.json'
-        if not p.exists():self.skipTest('Local baseline copy unavailable')
+        relative=Path('nsgym/physical-severity-750k-v1/frozen/manifest.json')
+        candidates=[root/relative for root in (ROOT.parent/'results',ROOT/'results')]
+        p=next((path for path in candidates if path.is_file()),None)
+        if p is None:self.skipTest('Local baseline copy unavailable')
         m=runner.read(p)
         self.assertEqual(m['seeds'],c['evaluation_seeds'])
         self.assertEqual({(r['parameter'],r['severity']) for r in m['conditions']},

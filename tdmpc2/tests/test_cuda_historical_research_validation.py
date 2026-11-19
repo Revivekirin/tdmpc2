@@ -230,8 +230,8 @@ def test_cuda_dynamics_q_real_bank_update_and_cpu_parity():
         with torch.no_grad():
             independent_target = agent._td_target(next_z, rewards_batch, terminals_batch, None)
         torch.testing.assert_close(target, independent_target)
-    print(json.dumps(dict(check='real_bank_dynamics_q', dynamics_loss=float(dynamics_loss),
-                          categorical_q_loss=float(q_loss), target_mean=float(target.mean()),
+    print(json.dumps(dict(check='real_bank_dynamics_q', dynamics_loss=float(dynamics_loss.detach()),
+                          categorical_q_loss=float(q_loss.detach()), target_mean=float(target.mean()),
                           gradient_norms=adapter.last_metrics,
                           component_hashes_before=before, component_hashes_after=after), sort_keys=True))
 
