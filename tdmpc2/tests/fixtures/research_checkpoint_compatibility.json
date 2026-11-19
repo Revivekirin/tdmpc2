@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "sources": {
+    "decision_snapshot": {
+      "path": "results/nsgym/dynamics-only-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-decision-seed42000001/snapshot-0003000.pt",
+      "source_bytes": 15589741,
+      "source_sha256": "a708f029a8bb0153323e502f8183729268d682b1f2c05eae6988f63e1b065680",
+      "source_unchanged": true,
+      "status": "PASS",
+      "temporary_roundtrip_equal": true,
+      "tensor_count": 9060,
+      "top_level_keys": [
+        "adapter",
+        "auxiliary_hash",
+        "checkpoint_sha256",
+        "configuration",
+        "fixed_hash",
+        "identity",
+        "model_hash",
+        "version"
+      ],
+      "top_level_type": "dict",
+      "tree_sha256": "9106f0bfdf047d0c9fc0f1ca1ceaa938604d7d09d879ce08562dffc8d939e2bd"
+    },
+    "dynamics_q_snapshot": {
+      "path": "results/nsgym/dynamics-q-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-dynamics-q-seed42000001/snapshot-0003000.pt",
+      "source_bytes": 64450317,
+      "source_sha256": "2ad1d390280231bdac4a7eabff458ac77db8276f49034207999cabdbd16f75f8",
+      "source_unchanged": true,
+      "status": "PASS",
+      "temporary_roundtrip_equal": true,
+      "tensor_count": 9138,
+      "top_level_keys": [
+        "adapter",
+        "checkpoint_config",
+        "checkpoint_sha256",
+        "configuration",
+        "fixed_hash",
+        "identity",
+        "initial_model_hash",
+        "model",
+        "original_optimizer_hash",
+        "resume",
+        "source_hashes"
+      ],
+      "top_level_type": "dict",
+      "tree_sha256": "3547bf7f283e8404065f1625877521959827cebe4b1e49977162244e72944323"
+    },
+    "joint_snapshot": {
+      "path": "results/nsgym/full-joint-750k-v1/runs-fixed/bthigh_damping-k0.5-full-joint-seed42000001/snapshot-0003000.pt",
+      "source_bytes": 71224143,
+      "source_sha256": "975af0ce063661372d89bc0f9d8f6f52d8175ecf77e15f481f2b461920e3bc62",
+      "source_unchanged": true,
+      "status": "PASS",
+      "temporary_roundtrip_equal": true,
+      "tensor_count": 224,
+      "top_level_keys": [
+        "checkpoint_sha256",
+        "configuration",
+        "identity",
+        "model",
+        "optim",
+        "pi_optim",
+        "protocol",
+        "resume",
+        "scale",
+        "transitions",
+        "updates"
+      ],
+      "top_level_type": "dict",
+      "tree_sha256": "f0694e2051e81ec753c62cd0bd6785206a1a0a9395754103b35e271c9118b75f"
+    },
+    "nominal_model": {
+      "path": "results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000/model.pt",
+      "source_bytes": 31499745,
+      "source_sha256": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b",
+      "source_unchanged": true,
+      "status": "PASS",
+      "temporary_roundtrip_equal": true,
+      "tensor_count": 72,
+      "top_level_keys": [
+        "model"
+      ],
+      "top_level_type": "dict",
+      "tree_sha256": "607dd9c7ba8816c4e4b3bec17be1ea5cdb440285c8ad7ccad732c039162526e4"
+    },
+    "nominal_optimizers": {
+      "path": "results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000/optimizers.pt",
+      "source_bytes": 39715241,
+      "source_sha256": "8b6431d4434bbeb492f6d28ae6194705ee03ae61b36f3258525ede640d1d018a",
+      "source_unchanged": true,
+      "status": "PASS",
+      "temporary_roundtrip_equal": true,
+      "tensor_count": 152,
+      "top_level_keys": [
+        "optim",
+        "pi_optim",
+        "scale"
+      ],
+      "top_level_type": "dict",
+      "tree_sha256": "2b61c0e401139f2ad789e431353cd480d8b3b1772608ca7716850d8ccf1071a9"
+    }
+  },
+  "torch_version": "2.14.0"
+}
