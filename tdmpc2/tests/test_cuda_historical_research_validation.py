@@ -59,7 +59,7 @@ def components(agent):
     from training_support import tree_hash
     model = agent.model
     return {name: tree_hash(getattr(model, name).state_dict()) for name in
-            ('_encoder', '_dynamics', '_reward', '_Qs', '_target_Qs', '_pi')}
+            ('_encoder', '_dynamics', '_reward', '_Qs', '_target_Qs_params', '_pi')}
 
 
 def bank_arrays():
@@ -199,7 +199,7 @@ def test_cuda_dynamics_q_real_bank_update_and_cpu_parity():
     after = components(agent)
     assert all(before[key] == after[key] for key in ('_encoder', '_reward', '_pi'))
     assert before['_dynamics'] != after['_dynamics'] and before['_Qs'] != after['_Qs']
-    assert before['_target_Qs'] != after['_target_Qs']
+    assert before['_target_Qs_params'] != after['_target_Qs_params']
     dyn_ids = {id(p) for group in adapter.dynamics_optimizer.param_groups for p in group['params']}
     q_ids = {id(p) for group in adapter.q_optimizer.param_groups for p in group['params']}
     assert dyn_ids and q_ids and dyn_ids.isdisjoint(q_ids)
