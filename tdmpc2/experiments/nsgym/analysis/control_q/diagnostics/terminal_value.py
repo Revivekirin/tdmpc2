@@ -4,8 +4,6 @@ import hashlib
 import json
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
 from experiments.nsgym.analysis.control_q.config import METHODS, PAIRS, TASKS
 from q_planning_core import Config, distributions, candidate_bank, state_hash, score
 from experiments.nsgym.analysis.control_q.metrics import decomposition, numpy, pack_metrics, ranking_metrics, read, require, stable_seed

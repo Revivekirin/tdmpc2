@@ -140,3 +140,19 @@ def evaluate(root,out,smoke=False,smoke_result=None):
         write(out/'provenance.json',dict(runtime=runtime,sources=src.files))
         write(out/'completion.json',dict(status='PARTIAL',smoke=smoke,completed=completed,error=str(exc)))
         raise
+
+
+def main(argv=None):
+    """Simulator evaluation runner, separate from the read-only figure CLI."""
+    import argparse
+    parser=argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument('--results-root',type=Path,required=True)
+    parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--smoke',action='store_true')
+    parser.add_argument('--smoke-result',type=Path)
+    args=parser.parse_args(argv)
+    evaluate(args.results_root.resolve(),args.output.resolve(),args.smoke,
+             args.smoke_result.resolve() if args.smoke_result else None)
+
+
+if __name__=='__main__':main()

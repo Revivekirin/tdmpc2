@@ -5,11 +5,32 @@ import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
 from experiments.nsgym.analysis.control_q.config import SCRIPTS
-from experiments.nsgym.analysis.reacher_dq_figures import ci, probability_js
 from q_planning_core import ranks
+
+
+def sha256(path):
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream,'sha256').hexdigest()
+
+
+def ci(matrix,key):
+    """Original paired hierarchical bootstrap; same draws as the archived code."""
+    matrix=np.asarray(matrix,dtype=float)
+    assert matrix.ndim==2 and np.isfinite(matrix).all()
+    digest=hashlib.sha256(str(key).encode()).digest()
+    rng=np.random.default_rng(int.from_bytes(digest[:8],'big'))
+    n_stream,n_eval=matrix.shape
+    a=rng.integers(n_stream,size=(3000,n_stream,1))
+    e=rng.integers(n_eval,size=(3000,1,n_eval))
+    means=matrix[a,e].mean(axis=(1,2))
+    return float(matrix.mean()),float(np.quantile(means,.025)),float(np.quantile(means,.975))
+
+
+def probability_js(p,q):
+    m=(p+q)/2
+    return .5*np.sum(p*(np.log(np.maximum(p,1e-30))-np.log(np.maximum(m,1e-30)))+
+                     q*(np.log(np.maximum(q,1e-30))-np.log(np.maximum(m,1e-30))),axis=-1)
 
 
 def require(ok, message):
@@ -81,6 +102,3 @@ def probability_window(support, probabilities, tail=.001):
     left=max(0,int((cumulative < tail).sum(-1).min())-1)
     right=min(len(support)-1,int((cumulative < 1-tail).sum(-1).max())+1)
     return float(support[left]),float(support[right])
-
-# Public hash utility retained for provenance callers.
-from experiments.nsgym.analysis.reacher_dq_figures import sha256

@@ -119,14 +119,10 @@ class Analysis(unittest.TestCase):
             models={name:deepcopy(self.f) for name in ('F','D','DQ','J')}
             with patch.object(cli,'config',return_value=cfg),patch.object(cli,'inputs',return_value=[(entry,banks)]),\
                  patch.object(cli,'load_models',return_value=models),patch('torch.optim.Adam',side_effect=AssertionError('optimizer')),redirect_stdout(io.StringIO()):
-                cli.inference(a);cli.inference(a,True);cli.aggregate(a);cli.plot(a);cli.report(a)
+                cli.inference(a);cli.inference(a,True);cli.aggregate(a);cli.report(a)
             self.assertEqual(len(cli.rows(out/'tables/immediate_q_metrics.csv')),800)
             self.assertEqual(len(cli.rows(out/'tables/planning_score_components.csv')),56)
             self.assertEqual(cli.read(out/'provenance/completion.json')['status'],'PARTIAL')
-            self.assertTrue((out/'figures/q_distribution_by_severity.png').is_file())
-            import os,shutil
-            if os.environ.get('Q_PLANNING_TEST_PREVIEW'):
-                shutil.copytree(out/'figures',Path(os.environ['Q_PLANNING_TEST_PREVIEW']),dirs_exist_ok=True)
             with self.assertRaises(FileExistsError):cli.table(out/'tables/immediate_q_metrics.csv',[])
 
     def test_original_snapshot_formats_no_optimizer_and_hash_guard(self):

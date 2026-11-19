@@ -409,95 +409,6 @@ def aggregate(a):
         inference='descriptive; bootstrap adaptation seeds n=3; no time-step independence; no pooled nominal duplicates'))
 
 
-def plot(a):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    out=a.output;figs=out/'figures';figs.mkdir(exist_ok=True)
-    require(not any(figs.glob('*.png')),'Figures already exist; use a fresh versioned output')
-    summary=rows(out/'tables/immediate_summary.csv')
-    def curves(data,metric,file,title,models=('F','D','DQ','J')):
-        fig,axes=plt.subplots(1,2,figsize=(12,4),layout='constrained')
-        banks=rows(out/'tables/common_bank_inventory.csv')
-        for ax,p in zip(axes,PARAMETERS):
-            for m in models:
-                rr=sorted([r for r in data if r['parameter']==p and r.get('method')==m and r['metric']==metric],key=lambda r:float(r['severity']))
-                if rr:
-                    ax.plot([float(r['severity']) for r in rr],[float(r['mean']) for r in rr],marker='o',label=m)
-                    ax.fill_between([float(r['severity']) for r in rr],[float(r['ci_low']) for r in rr],[float(r['ci_high']) for r in rr],alpha=.1)
-            nominal=next((r['nominal_parameter'] for r in banks if r['parameter']==p),'unavailable')
-            ax.set(title=f'{p}; nominal={nominal}',xlabel='Physical multiplier',ylabel=title)
-            if ax.lines:ax.legend()
-        fig.savefig(figs/file,dpi=160);plt.close(fig)
-    curves(summary,'q','scalar_q_vs_severity.png','Decoded scalar Q')
-    curves(summary,'entropy','q_entropy_by_severity.png','Categorical entropy (nats)')
-    curves(summary,'ensemble_std','q_ensemble_disagreement.png','Between-head scalar SD')
-    ds=rows(out/'tables/divergence_summary.csv')
-    for r in ds:r['method']=r['left']+'→'+r['right']
-    curves(ds,'js','q_js_divergence.png','Ensemble-mixture JS (nats)',('F→D','F→DQ','F→J','DQ→J'))
-    # Categorical heatmaps use shared symlog coordinates. Scalar decode is NOT E[symexp(bin)].
-    fig,axes=plt.subplots(2,3,figsize=(14,7),layout='constrained')
-    for row,p in enumerate(PARAMETERS):
-        for col,m in enumerate(('F','DQ','J')):
-            means=[];labels=[];axis=axes[row,col]
-            for severity in SEVERITIES:
-                files=list((out/'immediate').glob(f'{p}-k{severity:g}-seed*-eval*.npz'))
-                if not files:continue
-                values=[]
-                for f in files:
-                    with np.load(f) as d:values.append(d[m+'_probability'].mean(axis=(0,1)));bins=d['symlog_support']
-                means.append(np.mean(values,axis=0));labels.append(severity)
-            if means:
-                im=axis.imshow(np.stack(means),aspect='auto',origin='lower',vmin=0,vmax=1,extent=[bins[0],bins[-1],-.5,len(labels)-.5])
-                axis.set_yticks(range(len(labels)),labels);fig.colorbar(im,ax=axis,label='Mean bin probability')
-            else:axis.text(.5,.5,'NOT_MEASURED',ha='center',transform=axis.transAxes)
-            nominal=next((r['nominal_parameter'] for r in rows(out/'tables/common_bank_inventory.csv') if r['parameter']==p),'unavailable')
-            axis.set(title=f'{p} / {m}; nominal={nominal}',xlabel='symlog value support',ylabel='Severity')
-    fig.savefig(figs/'q_distribution_by_severity.png',dpi=160);plt.close(fig)
-    variants=('F','D','DQ-dyn-only','DQ-full','TTT+DQ-Q','F+DQ-Q','J')
-    for name,metric,file,title in [('terminal_q_metrics','q','terminal_q_decomposition.png','Terminal Q; common Frozen a_H'),
-        ('planning_score_components','reward_sum','planning_reward_decomposition.png','Discounted predicted reward'),
-        ('planning_score_components','terminal_contribution','planning_terminal_decomposition.png','Discounted native terminal Q'),
-        ('planning_score_components','total_score','planning_score_decomposition.png','Native candidate score')]:
-        path=out/f'tables/{name}_summary.csv'
-        if path.exists():curves(rows(path),metric,file,title,variants)
-    path=out/'tables/candidate_ranking_comparison_summary.csv'
-    if path.exists():
-        rr=rows(path)
-        for r in rr:r['method']=r['left']+'→'+r['right']
-        curves(rr,'top_k_overlap','ranking_disagreement.png','Top-k overlap',tuple(sorted({r['method'] for r in rr})))
-    assoc=rows(out/'tables/q_control_association.csv') if (out/'tables/q_control_association.csv').stat().st_size else []
-    if assoc:
-        fig,axes=plt.subplots(1,2,figsize=(12,4),layout='constrained')
-        for ax,p in zip(axes,PARAMETERS):
-            for m in ('D','DQ','J'):
-                rr=[r for r in assoc if r['parameter']==p and r['right']==m and float(r['severity'])!=1]
-                ax.scatter([float(r['js']) for r in rr],[float(r['return_difference']) for r in rr],label=m)
-            ax.axhline(0,color='gray');ax.set(title=p,xlabel='JS vs Frozen',ylabel='Paired return difference vs Frozen');ax.legend()
-        fig.savefig(figs/'q_change_vs_control.png',dpi=160);plt.close(fig)
-        fig,axes=plt.subplots(1,2,figsize=(12,4),layout='constrained')
-        for ax,metric in zip(axes,('entropy','ensemble_std')):
-            for p in PARAMETERS:
-                for m in ('D','DQ','J'):
-                    rr=[r for r in assoc if r['parameter']==p and r['right']==m and float(r['severity'])!=1]
-                    ax.scatter([float(r[metric]) for r in rr],[float(r['return_difference']) for r in rr],label=p+'/'+m)
-            ax.axhline(0,color='gray');ax.set(xlabel=metric,ylabel='Return difference vs Frozen');ax.legend(fontsize=6)
-        fig.savefig(figs/'q_uncertainty_vs_control.png',dpi=160);plt.close(fig)
-    terminal=out/'tables/terminal_q_metrics_per_stream.csv'
-    if terminal.exists():
-        rr=rows(terminal);fig,axes=plt.subplots(1,2,figsize=(10,4),layout='constrained')
-        for ax,p in zip(axes,PARAMETERS):
-            kk=sorted({float(r['severity']) for r in rr if r['parameter']==p})
-            for k in kk:
-                ff={int(r['adaptation_seed']):float(r['q']) for r in rr if r['parameter']==p and float(r['severity'])==k and r['method']=='F'}
-                dd=[float(r['q'])-ff[int(r['adaptation_seed'])] for r in rr if r['parameter']==p and float(r['severity'])==k and r['method']=='D']
-                ax.scatter([k]*len(dd),dd,label=f'terminal k={k:g}')
-            ax.axhline(0,color='gray',label='Immediate F=D (asserted)')
-            ax.set(title=p,xlabel='Severity',ylabel='Terminal D−F, common action');ax.legend(fontsize=7)
-        fig.savefig(figs/'immediate_vs_terminal_q.png',dpi=160);plt.close(fig)
-    write(out/'provenance/plot.json',dict(status='PASS',figures=[p.name for p in figs.glob('*.png')]))
-
-
 def report(a):
     out=a.output;reports=out/'reports';reports.mkdir(exist_ok=True)
     require(not any(reports.glob('*.md')) and not (out/'README.md').exists(),'Reports already exist')
@@ -585,7 +496,7 @@ def package(a):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('command',choices=['inventory','bank','immediate','terminal','planning','aggregate','plot','report','package','smoke'])
+    p.add_argument('command',choices=['inventory','bank','immediate','terminal','planning','aggregate','report','package','smoke'])
     p.add_argument('--results-root',type=Path,default=Path('results/nsgym'))
     p.add_argument('--checkpoint',type=Path)
     p.add_argument('--reference',type=Path)

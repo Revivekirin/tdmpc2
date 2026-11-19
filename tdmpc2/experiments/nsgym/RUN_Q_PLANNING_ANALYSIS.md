@@ -8,7 +8,7 @@ No pipeline command launches another scientific stage automatically.
 
 ## Implementation and interpretation
 
-- `analyze_q_planning.py`: inventory, canonical bank, inference, aggregation, plots, reports, ZIP.
+- `analyze_q_planning.py`: historical numerical inventory, canonical bank, inference, aggregation, reports, ZIP. Its redundant plot stage was removed.
 - `q_planning_core.py`: original WorldModel Q extraction and original `TDMPC2._estimate_value` instrumentation.
 - Reuses `mechanism_forward.Config/state_hash`, `analyze_existing_mechanisms` hashes/ranks and original `training_support.tree_hash`.
 - Existing loaders instantiate original optimizers and may construct environments. This analysis instead follows their exact **model-state restoration**: F `api_model_conversion`, D nominal + adapter predictor, DQ/J full saved model. Full reconstructed hashes (where saved), component hashes, final counters, metadata and snapshot hashes are checked. This is an intentional analysis-only loader, not a replacement training/resume loader. No optimizer or environment is constructed.
@@ -36,7 +36,7 @@ python "$Q" --help
 python "$Q" smoke --output "$RESULTS/q-planning-cpu-smoke-v1"
 ```
 
-Smoke uses a small real WorldModel with synthetic inputs; it is not a scientific checkpoint or CUDA smoke. It covers probability normalization/decoding, invariance, hybrids, sampling/bounds, score decomposition, state/RNG preservation, no Adam construction, and the table/plot/report path. It does not roll out an environment.
+Smoke uses a small real WorldModel with synthetic inputs; it is not a scientific checkpoint or CUDA smoke. It covers probability normalization/decoding, invariance, hybrids, sampling/bounds, score decomposition, state/RNG preservation, no Adam construction, and numerical table/report output. It does not roll out an environment.
 
 ## 2. Compatibility inventory and common bank
 
@@ -72,11 +72,10 @@ python "$Q" terminal --tier B --results-root "$RESULTS" --output "$OUT" \
 
 `planning` is an alias for `terminal`; do not run both into the same output. The single pass emits terminal_q_metrics.csv, planning_score_components.csv, candidate_ranking_comparison.csv, and controlled terminal_counterfactuals.csv. No actual candidate simulator return is computed.
 
-## 5. Aggregate, plot, report and package
+## 5. Aggregate, report and package
 
 ```bash
 python "$Q" aggregate --results-root "$RESULTS" --output "$OUT"
-python "$Q" plot --results-root "$RESULTS" --output "$OUT"
 python "$Q" report --results-root "$RESULTS" --output "$OUT"
 python "$Q" package --results-root "$RESULTS" --output "$OUT"
 cat "$OUT/provenance/completion.json"
@@ -96,7 +95,6 @@ python "$Q" immediate --tier A --results-root "$RESULTS" --output "$EXPANDED" --
 python "$Q" planning --tier B --full-grid --results-root "$RESULTS" --output "$EXPANDED" \
   --device cuda:0 --planning-observations 2 --candidates 64 --top-k 8
 python "$Q" aggregate --results-root "$RESULTS" --output "$EXPANDED"
-python "$Q" plot --results-root "$RESULTS" --output "$EXPANDED"
 python "$Q" report --results-root "$RESULTS" --output "$EXPANDED"
 python "$Q" package --results-root "$RESULTS" --output "$EXPANDED"
 ```
@@ -104,3 +102,5 @@ python "$Q" package --results-root "$RESULTS" --output "$EXPANDED"
 Optional selectors `--parameter`, `--severity`, `--seed` restrict inventory and inference. Use identical selectors when extracting a restricted bank. `--dry-run` prints resolved arguments and does not load models or write files. Current matched inference requires `--models F D DQ J`; arbitrary subsets are intentionally rejected to preserve invariance tests.
 
 Additional stratification: action saturation means any action component |a|≥0.99, not force saturation. Root velocity bins are negative, 0–5 and above 5 m/s. Observation regime is early (<100 transitions) versus later. Physical response regime, when qacc is available, is the within-source-episode lower/middle/upper tertile of generalized acceleration norm. Its mixed generalized-coordinate units and episode-specific cutoffs preclude interpreting this as an absolute cross-condition physical severity scale; thresholds are saved in each canonical bank.
+
+The supported figure entry point is now `python -m experiments.nsgym.analysis.control_q.run --mode all --results-root "$RESULTS" --output NEW_DIRECTORY`. See `analysis/control_q/README.md` for the verified, six-family final figure pipeline.

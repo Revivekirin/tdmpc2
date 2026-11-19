@@ -1,111 +1,21 @@
-# Control–critic research pipeline
+# Final NS-Gym research figures
 
-Single public entry: `python -m experiments.nsgym.analysis.control_q.run`.
-Run from the project root containing `experiments/` and `tdmpc2/`.
-
-## Current verification and remaining work
-
-Existing numerical tests: 9/9 before migration; 13/13 including new paired-aggregation
-and critic-isolation tests after migration. Four real checkpoints (HalfCheetah
-mass/damping 2×; Reacher D0/M0 2×) pass exact old/new native planner action/mean
-parity, immediate Frozen=D invariant and component isolation. This is not a
-108-stream inference rerun or a closed-loop physics test.
-
-**New physical evaluation is NOT_RUN locally.** Historical CUDA and simulator
-versions are required; local runtime lacks CUDA, MuJoCo and NS-Gym. The evaluator
-must pass the server smoke before expansion. Report generation currently marks
-PARTIAL and explicitly lists uncompleted physical/prediction figure consolidation
-and full-source regression. Do not present it as a completed research report.
-
-## Module ownership
-
-- `run.py`: public stage selection.
-- `config.py`: unchanged task/seed/checkpoint contracts.
-- `models.py`: inventory, reconstruction, hashes.
-- `metrics.py`: unchanged Q/rank/decomposition/bootstrap computations.
-- `provenance.py`: content validation and explicit result-path relocation.
-- `evaluation.py`: historical closed-loop task loops and parity gates.
-- `diagnostics/terminal_value.py`: v1 immediate/terminal forward diagnostics.
-- `diagnostics/planning.py`: native planner and decision diagnostics.
-- `diagnostics/q_swap.py`: independent online-Q substitution; EMA stays unchanged.
-- `reporting/figures.py`, `reporting/decision.py`: moved historical rendering.
-- `reporting/aggregate.py`: paired hierarchical return bridge.
-- `reporting/html.py`: offline evidence report and ZIP; incomplete evidence is labelled.
-- `legacy_cli.py`: original CLI semantics for historical commands.
-
-Original filenames are compatibility imports only. External scripts/tests and the
-historical command document still reference them; deleting them would break those
-users. Supporting scripts remain shared with unrelated experiments. Native TD-MPC2,
-physical wrappers and historical results were not modified.
-
-## Server commands
+Run from the project directory containing `experiments/` and `tdmpc2/`:
 
 ```bash
-conda activate tdmpc2-nsgym
-cd /home/jhkim/repos/tdmpc2
-RESULTS="$PWD/results/nsgym"
-RUN="$RESULTS/control-q-run-$(date +%Y%m%d-%H%M%S)"
-export MPLCONFIGDIR=/tmp/mpl-nsgym
-mkdir -p "$RUN"
-
-python -m experiments.nsgym.analysis.control_q.run audit \
-  --results-root "$RESULTS" --output "$RUN/audit"
-
-python -m experiments.nsgym.analysis.control_q.run q-diagnostics \
-  --results-root "$RESULTS" --output "$RUN/q-diagnostics" --device cpu
-python -m experiments.nsgym.analysis.control_q.run planner-diagnostics \
-  --results-root "$RESULTS" --q-source "$RUN/q-diagnostics" \
-  --output "$RUN/planner-diagnostics" --device cpu
+python -m experiments.nsgym.analysis.control_q.run \
+  --mode all --results-root results/nsgym \
+  --output results/nsgym/final-figures-v1
 ```
 
-Audit reads original checkpoints, adaptation snapshots and held-out banks; it does
-not require previously generated Q result folders. Fresh `q-diagnostics` computes
-Q and fixed-candidate results from those raw inputs. Fresh `planner-diagnostics`
-first renders presentation summaries from `--q-source`, then computes native MPPI
-diagnostics. These CPU stages may take many minutes. They do not interact with a
-simulator. `--reuse-validated` is an optional cache path only when the older
-completed results are present; it is not part of a fresh analysis.
+`--mode figures` generates the same validated PNGs and figure guide; `--mode report` refreshes the guide in an already completed output. `--validate-only` checks the three source artifacts and full condition/seed coverage without drawing. `--smoke` additionally checks the predeclared HalfCheetah damping 2× saved array. Outputs must be new except for `--mode report`.
 
-New smoke: four predeclared 2× streams, first historical evaluation seed, both
-controllers: 8 episodes, 4,200 environment transitions. Exact historical D+Q return
-parity uses a predefined 1e-6 absolute tolerance. Any failure stops expansion; no
-post-hoc tolerance is chosen. Both model and auxiliary state must remain unchanged.
+This CLI reads three completed and hash-validated archives under `results/nsgym/unified-analysis`: `q-terminal-planning-v1`, `q-decision-relevance-v1`, and `q-terminal-planning-presentation-v2`. It uses saved categorical-decoded Q arrays, fixed candidate scores, native planner traces and measured held-out return records. It does not load a model checkpoint, run a simulator, train, or repeat checkpoint inference.
 
-```bash
-nohup python -u -m experiments.nsgym.analysis.control_q.run q-swap-eval \
-  --results-root "$RESULTS" --output "$RUN/smoke" \
-  --device cuda:0 --smoke > "$RUN/smoke.log" 2>&1 < /dev/null &
-echo $! > "$RUN/smoke.pid"
-tail -n 50 -f "$RUN/smoke.log"
-```
+Each of the six shift families receives four main PNGs: actual return/prediction, fixed-head terminal Q, fixed-candidate ranking and native MPPI proposed-action difference. The three optional appendices per family use a predeclared severity-2 example. A fifth closed-loop critic-swap plot is generated only when a completed, validated actual environment evaluation exists; none is registered in the current source set, so that outcome is marked `NOT_MEASURED`.
 
-Only after the smoke completion is PASS:
+`FIGURE_READING_GUIDE.md`, `FIGURE_REPORT.html`, `FIGURE_MANIFEST.csv`, `FIGURE_SOURCE_MAP.csv`, `FIGURE_COVERAGE.csv`, `FIGURE_VALIDATION.json`, `FIGURE_CODE_AUDIT.csv` and `DELETED_PLOT_CODE.csv` document interpretation, provenance, coverage and code cleanup. Source arrays and checkpoints remain unchanged. The older HalfCheetah `analyze_q_planning.py` remains a numerical bank/inference tool used by model reconstruction and tests; its duplicate plot function and `plot` command were removed. The historical standalone figure CLIs and their rendering modules were deleted. Their exact previous versions are recoverable with `git show 99429838effbfd882aa6e4b15e57c6b5282a5ba5:<path>`.
 
-```bash
-nohup python -u -m experiments.nsgym.analysis.control_q.run q-swap-eval \
-  --results-root "$RESULTS" --output "$RUN/q-swap" --device cuda:0 \
-  --smoke-result "$RUN/smoke" > "$RUN/q-swap.log" 2>&1 < /dev/null &
-echo $! > "$RUN/q-swap.pid"
-tail -n 50 -f "$RUN/q-swap.log"
-```
+The physical Q-swap evaluator remains available separately as `python -m experiments.nsgym.analysis.control_q.evaluation --results-root results/nsgym --output NEW_DIRECTORY --smoke`; a full run additionally requires `--smoke-result COMPLETED_SMOKE_DIRECTORY`. It is a simulator evaluation runner and is never called by the figure CLI. After a complete validated 108-stream evaluation, pass its output with `--swap-source PATH` to add the conditional Figure 05.
 
-Full matrix: 108 streams × 20 seeds × 2 controllers = 4,320 episodes;
-1,584,000 environment transitions. No adaptation or training. Optional factorial
-cross-combination is not launched. Choose a GPU externally with CUDA_VISIBLE_DEVICES;
-the native implementation uses logical cuda:0. No running process is stopped.
-
-After evaluation (report remains PARTIAL until remaining report/regression gaps
-are resolved):
-
-```bash
-python -m experiments.nsgym.analysis.control_q.run integrate-report \
-  --results-root "$RESULTS" --swap-source "$RUN/q-swap" \
-  --q-source "$RUN/q-diagnostics" \
-  --presentation-source "$RUN/planner-diagnostics-presentation" \
-  --planner-source "$RUN/planner-diagnostics" \
-  --output "$RUN/report"
-```
-
-`all` sequences audit → fresh Q diagnostics → fresh presentation and planner diagnostics → smoke → full Q-swap →
-report. `all --smoke` stops after smoke. `--validate-only` performs only the source
-audit. All outputs must be new; existing sources/checkpoints are read-only.
+Code ownership is narrow: `run.py` is the sole figure CLI; `data.py` verifies archived inputs and normalizes condition coverage; `metrics.py` contains decoder-adjacent statistics and reproducible intervals; `figures.py` is the only plotting implementation; `report.py` validates output and writes the reading guide. `provenance.py` checks source hashes. `models.py` and `diagnostics/{terminal_value,planning,q_swap}.py` retain numerical/model inference needed for scientific provenance and the separate evaluator; `reporting/aggregate.py` holds the paired closed-loop return estimator. `config.py` fixes task, seed and checkpoint contracts.

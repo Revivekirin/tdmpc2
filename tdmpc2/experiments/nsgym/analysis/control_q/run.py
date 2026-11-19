@@ -1,82 +1,60 @@
-"""Single public CLI for NS-Gym control–critic research stages."""
+"""Single read-only entry point for final NS-Gym research figures."""
+from __future__ import annotations
+
 import argparse
-import sys
 from pathlib import Path
-from .metrics import write, require
-from .provenance import audit,verified_artifact
+
+from .data import ARTIFACTS, load_inputs, load_swap, paired_terminal_arrays
+from .metrics import require, write, read, sha256
+from .provenance import verified_artifact
 
 
-def infer_q(root,out,device,smoke=False):
-    from .legacy_cli import main as inference
-    previous_argv=sys.argv
-    try:
-        sys.argv=[previous_argv[0],'--results-root',str(root),'--output',str(out),'--device',device]+(['--smoke'] if smoke else [])
-        inference()
-    finally:
-        sys.argv=previous_argv
-
-
-def infer_planner(root,source,out):
-    from .reporting.figures import presentation
-    from .diagnostics.planning import run
-    source,_=verified_artifact(root,'q-terminal-planning-v1',source)
-    v2=out.parent/(out.name+'-presentation')
-    require(not v2.exists() and not v2.with_suffix('.zip').exists(),'Presentation output must be new')
-    presentation(root,source,v2)
-    run(root,source,out,presentation_source=v2)
-    return v2
-
-
-def main():
-    p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('stage',choices=['audit','q-diagnostics','planner-diagnostics','q-swap-eval','integrate-report','all'])
-    p.add_argument('--results-root',type=Path,required=True)
-    p.add_argument('--output',type=Path,required=True)
-    p.add_argument('--device',default='cpu')
-    p.add_argument('--smoke',action='store_true')
-    p.add_argument('--smoke-result',type=Path)
-    p.add_argument('--swap-source',type=Path)
-    p.add_argument('--q-source',type=Path,help='Completed Q inference from this run')
-    p.add_argument('--presentation-source',type=Path)
-    p.add_argument('--planner-source',type=Path)
-    p.add_argument('--validate-only',action='store_true')
-    p.add_argument('--reuse-validated',action='store_true')
-    a=p.parse_args();root=a.results_root.resolve();out=a.output.resolve()
-    if a.validate_only or a.stage=='audit':
-        if not audit(root,out):raise SystemExit(2)
+def main(argv=None):
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--mode',choices=('figures','report','all'),default='all')
+    parser.add_argument('--results-root',type=Path,required=True)
+    parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--swap-source',type=Path,help='Optional complete held-out Q-swap evaluation')
+    parser.add_argument('--smoke',action='store_true',help='Validate one saved array; no model/simulator')
+    parser.add_argument('--validate-only',action='store_true',help='Verify hashes and coverage; draw nothing')
+    a=parser.parse_args(argv)
+    root=a.results_root.resolve();out=a.output.resolve()
+    if a.mode=='report' and not (a.smoke or a.validate_only):
+        from .report import guide
+        require((out/'FIGURE_VALIDATION.json').is_file(),'Report requires completed figures in --output')
+        paths={key:str(verified_artifact(root,name)[0]) for key,name in ARTIFACTS.items()}
+        if (out/'SOURCE_ARTIFACTS.json').is_file():paths.update(read(out/'SOURCE_ARTIFACTS.json'))
+        guide(out,read(out/'FIGURE_VALIDATION.json'),paths)
+        print(f'PASS report: {out}')
         return
-    if a.stage in ('q-diagnostics','planner-diagnostics'):
-        name='q-terminal-planning-v1' if a.stage=='q-diagnostics' else 'q-decision-relevance-v1'
-        if a.reuse_validated:
-            source,record=verified_artifact(root,name)
-            require(not out.exists(),'Output must be new');out.mkdir(parents=True)
-            write(out/'validated_cache.json',dict(path=str(source),**record))
-            write(out/'completion.json',dict(status='PASS',reused=True,environment_interactions=0))
-        elif a.stage=='planner-diagnostics':
-            require(a.q_source is not None,'Fresh planner diagnostics require --q-source')
-            infer_planner(root,a.q_source.resolve(),out)
-        else:
-            infer_q(root,out,a.device,a.smoke)
+    require(not out.exists(),'Output directory must be new')
+    paths,tables,arrays,provenance=load_inputs(root)
+    out.mkdir(parents=True)
+    source_paths={key:str(value) for key,value in paths.items()}
+    write(out/'SOURCE_ARTIFACTS.json',source_paths)
+    write(out/'SOURCE_PROVENANCE.json',provenance)
+    if a.validate_only or a.smoke:
+        if a.smoke:paired_terminal_arrays(arrays[('halfcheetah','damping',2.,42000001)])
+        write(out/'completion.json',dict(status='PASS',mode='smoke' if a.smoke else 'validate-only',
+                                         verified_artifacts=3,conditions=36,simulator_calls=0))
+        print(f'PASS source validation: {out}')
         return
-    if a.stage=='q-swap-eval':
-        require(a.device.startswith('cuda'),'Use --device cuda:0 for historical evaluator parity')
-        require(a.device=='cuda:0','Select physical GPU with CUDA_VISIBLE_DEVICES; logical device must be cuda:0')
-        from .evaluation import evaluate
-        evaluate(root,out,a.smoke,a.smoke_result)
-    elif a.stage=='integrate-report':
-        from .reporting.html import integrate
-        integrate(root,out,a.swap_source,a.q_source,a.presentation_source,a.planner_source)
-    else:
-        require(not out.exists(),'Output must be new');out.mkdir(parents=True)
-        require(audit(root,out/'audit'),'Audit failed; expansion stopped')
-        infer_q(root,out/'q-diagnostics',a.device)
-        presentation_source=infer_planner(root,out/'q-diagnostics',out/'planner-diagnostics')
-        require(a.device=='cuda:0','All includes physical evaluation: --device cuda:0 is required')
-        from .evaluation import evaluate
-        evaluate(root,out/'smoke',True)
-        if a.smoke:return
-        evaluate(root,out/'q-swap',False,out/'smoke')
-        from .reporting.html import integrate
-        integrate(root,out/'report',out/'q-swap',out/'q-diagnostics',presentation_source,out/'planner-diagnostics')
+    summary_dir=out/'tables';summary_dir.mkdir()
+    for name in ('control','ranking','native','effects','returns'):
+        tables[name].to_csv(summary_dir/f'{name}_summary.csv',index=False)
+    from .figures import render
+    from .report import code_audit,guide,validate_figures
+    swap=load_swap(root,a.swap_source)
+    if swap is not None:source_paths['q_swap']=str(swap[0]);write(out/'SOURCE_ARTIFACTS.json',source_paths)
+    result=render(root,out,tables,arrays,paths,swap)
+    for key,record in provenance.items():
+        for relative,digest in record['outputs'].items():
+            path=paths[key]/relative
+            require(path.is_file() and sha256(path)==digest,f'Source changed during rendering: {path}')
+    code_audit(out)
+    validation=validate_figures(out,result)
+    guide(out,validation,source_paths)
+    print(f'PASS: {validation["figure_png_count"]} PNG, 36 conditions, 108 streams; {out}')
+
 
 if __name__=='__main__':main()

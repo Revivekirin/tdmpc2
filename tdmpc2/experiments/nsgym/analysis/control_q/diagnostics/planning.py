@@ -9,13 +9,11 @@ from unittest.mock import patch
 from contextlib import ExitStack
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
 from experiments.nsgym.analysis.control_q.config import METHODS, PAIRS, SCRIPTS, TASKS
 from q_planning_core import Config, distributions, state_hash, score
 from experiments.nsgym.analysis.control_q.metrics import centered_components, pack_metrics, ranking_metrics, read, require, stable_seed, write
 from experiments.nsgym.analysis.control_q.models import Sources, inventory, load_models
-from experiments.nsgym.analysis.control_q.reporting.decision import decision_finish
+from experiments.nsgym.analysis.control_q.metrics import aggregate
 
 
 class RandomTape:
@@ -264,4 +262,48 @@ Immediate multi-action Q uses all 20 evaluation seeds × 4 states × 32 existing
         write(out/'completion.json',dict(status='PARTIAL',completed=len(checks),failures=failures))
         write(out/'NUMERICAL_VALIDATION.json',dict(status='PARTIAL',checks=checks,failures=failures))
         raise RuntimeError('Planner diagnostic failed; PARTIAL retained')
-    decision_finish(root,source,v2,out,frames,examples,src,checks,configs,started)
+    # Preserve the numerical stage without invoking any historical plot suite.
+    common=['task','family','severity']
+    specs={'matched':(['method'],['scalar_q','head_std','entropy','js_frozen','signed_delta','absolute_delta']),
+           'action':(['phase','comparison'],['mean_shift','mean_absolute_shift','action_dependent_sd','spearman','argmax_disagreement']),
+           'fixed':(['phase','comparison'],['mean_shift','action_dependent_sd','spearman','argmax_disagreement']),
+           'native':(['comparison','iteration'],['mean_l2','std_l2','elite_overlap','top1_id_disagreement','candidate_l2','final_action_l2']),
+           'shared_native':(['iteration'],['mean_shift','action_dependent_sd','spearman','argmax_disagreement'])}
+    for name,(extra,metrics) in specs.items():
+        frame=frames[name]
+        group=common+extra+['adaptation_seed','evaluation_seed']
+        values=frame.groupby(group,dropna=False)[metrics].mean().reset_index()
+        aggregate(values,common+extra,metrics).to_csv(out/'tables'/f'{name}_summary.csv',index=False)
+    # The canonical return/prediction table comes from verified held-out source.
+    paired=pd.read_csv(src.track(v2/'tables/paired_heldout_returns.csv','verified paired returns'))
+    raw=[]
+    for task,folder,filename in [('halfcheetah','dynamics-q-750k-v1','four_method_paired_comparison.csv'),
+                                 ('reacher','reacher-dynamics-q-v1','four_way_per_seed.csv')]:
+        table=pd.read_csv(src.track(root/folder/'comparison'/filename,'canonical held-out results'))
+        if task=='halfcheetah':
+            table['family']=table.parameter.map({'bthigh_damping':'damping','torso_mass':'mass'})
+            returns={'F':'frozen_return','D':'ttt_return','DQ':'dq_return','J':'joint_return'}
+            mse={'F':'frozen_latent_mse','D':'ttt_latent_mse','DQ':'dq_latent_mse'}
+        else:
+            table=table[table.kind=='shifted']
+            returns={m:v+'_episode_return' for m,v in [('F','Frozen'),('D','Dynamics-only'),('DQ','Dynamics+Q'),('J','Joint RL')]}
+            mse={'F':'frozen_mse','D':'dynamics_mse','DQ':'dq_mse'}
+        for method,column in returns.items():
+            frame=table[['family','severity','adaptation_seed','evaluation_seed']].copy()
+            frame['task']=task;frame['method']=method;frame['return']=table[column].to_numpy()
+            frame['fixed_encoder_latent_mse']=table[mse[method]].to_numpy() if method in mse else np.nan
+            matched=frame.merge(paired[paired.method==method],on=common+['method','adaptation_seed','evaluation_seed'],
+                                validate='one_to_one',suffixes=('_raw','_reference'))
+            require(len(matched)==len(frame) and np.allclose(matched.return_raw,matched.return_reference),
+                    'Canonical paired return mismatch')
+            raw.append(frame)
+    evidence=pd.concat(raw,ignore_index=True)
+    evidence.to_csv(out/'tables/actual_control_prediction_evidence.csv',index=False)
+    aggregate(evidence,common+['method'],['return','fixed_encoder_latent_mse']).to_csv(
+        out/'tables/control_prediction_summary.csv',index=False)
+    require(not src.verify(),'Sources changed during numeric analysis')
+    write(out/'SOURCE_INPUTS.json',src.files)
+    write(out/'NUMERICAL_VALIDATION.json',dict(status='PASS',streams=len(checks),
+        native_parity_comparisons=len(checks)*2*5,environment_interactions=0,optimizer_steps=0))
+    write(out/'completion.json',dict(status='PASS',streams=len(checks),conditions=36,
+        native_states_per_stream=2,figures=0,environment_interactions=0,optimizer_steps=0))

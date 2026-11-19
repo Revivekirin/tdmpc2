@@ -3,13 +3,10 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
 from experiments.nsgym.analysis.control_q.config import GRID, TASKS
-from experiments.nsgym.analysis.reacher_dq_figures import sha256
 from q_planning_core import compatible
 from analyze_q_planning import make_model
-from experiments.nsgym.analysis.control_q.metrics import read, require
+from experiments.nsgym.analysis.control_q.metrics import read, require, sha256
 
 
 class Sources:
