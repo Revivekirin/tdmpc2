@@ -136,6 +136,46 @@ def test_cuda_nominal_production_load_saved_bank_and_native_planning():
                           component_hashes=before, selected_action=action.cpu().tolist()), sort_keys=True))
 
 
+def test_cuda_all_historical_transition_banks_first_step_inference():
+    require_server(NOMINAL/'metadata.json', FROZEN/'dataset_index.json', LATENT)
+    import training_support
+    index = json.loads((FROZEN/'dataset_index.json').read_text())
+    references = {}
+    with LATENT.open(newline='') as stream:
+        for row in csv.DictReader(stream):
+            if row['horizon'] == '1' and row['source_step'] == '0':
+                assert row['source_file'] not in references
+                references[row['source_file']] = float(row['latent_mse'])
+    assert len(index) == len(references) == 240
+    observations, next_observations, actions, expected = [], [], [], []
+    for entry in index:
+        source = FROZEN/entry['file']
+        assert source.is_file() and sha256(source) == entry['sha256']
+        with np.load(source) as bank:
+            observations.append(np.asarray(bank['observations'][0], dtype=np.float32))
+            next_observations.append(np.asarray(bank['observations'][1], dtype=np.float32))
+            actions.append(np.asarray(bank['actions'][0], dtype=np.float32))
+        expected.append(references.pop(entry['file']))
+    assert not references
+    agent, _ = training_support.load_checkpoint(NOMINAL)
+    agent.model.eval()
+    with torch.no_grad():
+        obs = torch.as_tensor(np.stack(observations), device=agent.device)
+        nxt = torch.as_tensor(np.stack(next_observations), device=agent.device)
+        action = torch.as_tensor(np.stack(actions), device=agent.device)
+        predicted = agent.model.next(agent.model.encode(obs, None), action, None)
+        actual = agent.model.encode(nxt, None)
+        mse = (predicted-actual).square().mean(-1).cpu().numpy()
+    expected = np.asarray(expected)
+    np.testing.assert_allclose(mse, expected, rtol=5e-4, atol=2e-7)
+    deviations = np.abs(mse-expected)
+    print(json.dumps(dict(check='all_historical_banks', banks=len(index),
+                          max_absolute_deviation=float(deviations.max()),
+                          mean_absolute_deviation=float(deviations.mean()),
+                          max_relative_deviation=float((deviations/np.maximum(expected, 1e-12)).max())),
+          sort_keys=True))
+
+
 def test_cuda_historical_adaptation_production_loaders():
     require_server(NOMINAL/'metadata.json', DECISION/'snapshot-0003000.pt',
                    DECISION/'manifest.json', DECISION/'completion.json',
