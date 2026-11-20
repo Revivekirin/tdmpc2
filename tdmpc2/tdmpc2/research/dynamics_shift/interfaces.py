@@ -1,12 +1,11 @@
 """Small contracts for composition; legacy state and replay formats stay intact."""
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, Mapping, Protocol, TypeAlias, TypeVar
+from typing import Any, Callable, Literal, Mapping, Protocol, TypeAlias
 
 
 Method: TypeAlias = Literal["frozen", "dynamics_only", "decision_ttt", "dynamics_q", "joint"]
 AdaptationState: TypeAlias = Mapping[str, Any]
-Transition = TypeVar("Transition")
 
 
 @dataclass(frozen=True)
@@ -17,16 +16,7 @@ class AdaptationConfig:
     identity: Mapping[str, Any] | None = None
 
 
-class AdaptationReplayBuffer(Protocol[Transition]):
-    """Only the shared storage contract; sampling remains with each legacy owner."""
-
-    def __len__(self) -> int: ...
-    def __iter__(self) -> Any: ...
-
-
 class AdaptationStrategy(Protocol):
-    implementation: Any
-
     def observe(self, *args: Any, **kwargs: Any) -> Any: ...
     def update(self) -> Any: ...
     def assert_fixed(self) -> None: ...

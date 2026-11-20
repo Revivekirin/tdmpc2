@@ -1,67 +1,101 @@
-# Dynamics-shift research architecture — Phase 1B-1
+# Dynamics-shift research architecture — Phase 1B-2
 
-The active package is `tdmpc2/research/dynamics_shift/` under the inner project root. This phase adds a composition boundary only. Existing CLI scripts, models, update implementations, replay storage, checkpoint writers and evaluators continue to own their behavior.
+The active inner project owns adaptation in `tdmpc2/research/dynamics_shift/`. The original TD-MPC2 agent, planner and training buffer are unchanged. Joint RL remains with its existing runner. NS-Gym and ManiSkill2 runtime imports remain separate.
 
 ```text
 tdmpc2/research/dynamics_shift/
-├── __init__.py       public interface exports
-├── interfaces.py     method type, raw config/state types and small protocols
-├── adapters.py       transparent strategy and runner delegates
-└── factory.py        method selection and dependency injection
+├── __init__.py          canonical exports
+├── interfaces.py        method/config/state/strategy/runner contracts
+├── factory.py           selection and runner composition
+├── adapters.py          Joint and existing stream runner delegate
+├── dynamics.py          DynamicsAdaptation, episode validation, native budget monitor
+├── decision.py          DecisionAdapter (DynamicsAdaptation objective; decision schedule)
+├── dynamics_critic.py   DynamicsCriticAdaptation (separate D/Q optimizers, target EMA)
+├── replay.py            AdaptationReplayBuffer (bounded deque, original list sampler)
+├── schedule.py          UpdateSchedule and original expected_updates formula
+├── audit.py             ParameterInvarianceAudit and exact state comparison
+└── objectives.py        shared one-step latent dynamics MSE expression
+```
+
+## Dependencies
+
+```mermaid
+flowchart LR
+  subgraph Before["Before 1B-2"]
+    BCLI["adapt_shift / NS-Gym runners"] --> BCOMMON["common.stage3a / decision_ttt / dynamics_q"]
+    BFACT["research factory"] --> BWRAP["ExistingStrategyAdapter"] --> BCOMMON
+    BCOMMON --> BMODEL["TD-MPC2 model and target"]
+  end
+  subgraph After["After 1B-2"]
+    ACLI["unchanged CLIs and runners"] --> SHIM["common.* compatibility imports"]
+    AFACT["research factory"] --> CANON["DynamicsAdaptation / DecisionAdapter / DynamicsCriticAdaptation"]
+    SHIM --> CANON
+    CANON --> REPLAY["AdaptationReplayBuffer"]
+    CANON --> SCHED["UpdateSchedule"]
+    CANON --> AUDIT["ParameterInvarianceAudit"]
+    CANON --> OBJ["one_step_dynamics_mse"]
+    CANON --> AMODEL["unchanged TD-MPC2 model and target"]
+    AFACT --> JOINT["ExistingRunnerAdapter → original Joint run_stream"]
+  end
 ```
 
 ```mermaid
 classDiagram
-  class AdaptationConfig {
-    +method
-    +settings
-    +identity
-  }
-  class AdaptationStrategy {
-    <<Protocol>>
+  class DynamicsAdaptation {
     +observe()
+    +loss()
     +update()
     +state_dict()
     +load_state_dict()
-    +assert_fixed()
+    +held_out()
   }
-  class AdaptationRunner {
-    <<Protocol>>
-    +run()
+  class DecisionAdapter {
+    +observe()
+    +update()
+    +end_episode()
+  }
+  class DynamicsCriticAdaptation {
+    +observe()
+    +losses()
+    +update()
+    +parameter_audit()
+    +state_dict()
+    +load_state_dict()
   }
   class AdaptationReplayBuffer {
-    <<Protocol>>
-    +__len__()
-    +__iter__()
+    +sample(rng, batch_size)
   }
-  class AdaptationBinding {
-    +strategy
-    +runner
+  class UpdateSchedule {
+    +ready(size)
+    +due(size, transitions)
+    +expected_updates(transitions)
   }
-  class ExistingStrategyAdapter {
-    +implementation
+  class ParameterInvarianceAudit {
+    +fixed_state()
+    +assert_fixed(reference, message)
   }
-  class ExistingRunnerAdapter {
-    +implementation
-  }
-  AdaptationConfig --> AdaptationBinding : compose_adaptation
-  AdaptationBinding --> ExistingStrategyAdapter
-  AdaptationBinding --> ExistingRunnerAdapter
-  ExistingStrategyAdapter ..|> AdaptationStrategy
-  ExistingRunnerAdapter ..|> AdaptationRunner
-  ExistingStrategyAdapter --> AdaptationReplayBuffer : original replay, no copy
+  DecisionAdapter --|> DynamicsAdaptation : identical objective and optimizer
+  DynamicsAdaptation --> AdaptationReplayBuffer
+  DynamicsCriticAdaptation --> AdaptationReplayBuffer
+  DynamicsAdaptation --> UpdateSchedule
+  DynamicsCriticAdaptation --> UpdateSchedule
+  DynamicsAdaptation --> ParameterInvarianceAudit
+  DynamicsCriticAdaptation --> ParameterInvarianceAudit
 ```
 
-`AdaptationState` is a type alias for the existing state mapping. No new checkpoint schema is created. `AdaptationConfig` holds references to the original settings and identity mappings; the factory passes them into existing constructors without default insertion, normalization or cloning. `ExistingStrategyAdapter` forwards calls and unknown attributes to the same production object. `ExistingRunnerAdapter` calls the supplied production runner with the original arguments. Joint training remains in its original `run_full_joint_rl.run_stream` function, supplied to the factory when Joint is selected.
+| Original public path | Canonical owner | Compatibility |
+|---|---|---|
+| `common.stage3a.EpisodeAdapter` | `research.dynamics_shift.dynamics.DynamicsAdaptation` | Exact class alias; constructor and methods retained |
+| `common.decision_ttt.DecisionAdapter` | `research.dynamics_shift.decision.DecisionAdapter` | Exact class alias; scheduler state retained |
+| `common.dynamics_q.DynamicsQAdapter` | `research.dynamics_shift.dynamics_critic.DynamicsCriticAdaptation` | Exact class alias; D+Q update math retained |
+| `common.dynamics_q.expected_updates` | `research.dynamics_shift.schedule.expected_updates` | Exact formula alias |
+| `common.stage3a.equal_state / validate / NativeBudgetMonitor` | `research.dynamics_shift.audit / dynamics` | Imports preserved |
+| Joint `run_full_joint_rl.run_stream` | Original NS-Gym runner | `ExistingRunnerAdapter` only; no algorithm move |
 
-| Canonical selection | Production implementation | Replay and RNG owner | Runner boundary |
-|---|---|---|---|
-| Frozen | `common.stage3a.EpisodeAdapter` with `mode=frozen` | Episode adapter's deque and `random.Random` | Existing Frozen stream function |
-| Dynamics-only | `common.stage3a.EpisodeAdapter` with `mode=dynamics_only` | Same adapter, independently instantiated | Existing episode stream function |
-| Decision TTT | `common.decision_ttt.DecisionAdapter` with `mode=decision_ttt` | Inherited deque and `random.Random` | Existing decision stream function |
-| Dynamics+Q | `common.dynamics_q.DynamicsQAdapter` | D+Q adapter's deque and `random.Random` | Existing D+Q stream function |
-| Joint | `run_full_joint_rl.run_stream` callable | Original TD-MPC2 `Buffer` and agent RNG inside runner | Callable delegate; no fabricated stepwise strategy |
+`compose_adaptation` now returns a canonical strategy directly for Frozen, Dynamics-only, Decision TTT and D+Q. It binds Joint to the caller-supplied original `run_stream`. Existing CLI constructors still import their old `common.*` names and receive the same class objects. The old modules are retained as thin import shims pending an external-caller audit in a later phase.
 
-The new package imports no simulator or script runner at module import time. Only a selected strategy imports its existing `common` implementation. NS-Gym runner callbacks are supplied by the NS-Gym caller; ManiSkill2 remains in its original environment path. This keeps the runtime dependency sets separate.
+The original `common.buffer.Buffer` remains the Joint/TD-MPC2 training replay. The new adaptation replay subclass keeps the exact deque capacity and `random.Random.sample(list(replay), batch_size)` semantics; transition record schemas remain distinct. Schedules read the original mutable settings mapping at call time and are absent from serialized state, preserving legacy checkpoint keys and live configuration access. Audit snapshots preserve the episode adapter's CPU tensor clone policy and D+Q's deep-copy policy.
 
-No six upstream-modified core files were changed in Phase 1B-1. Their proposed changes, if ever needed, require a separate documented review before implementation. No algorithm, public legacy constructor, import path or CLI was replaced.
+Only the original one-step dynamics MSE expression is shared numerically. D+Q categorical cross-entropy, actual-next-observation TD target, independent Adam steps, Q train/dropout mode, gradient isolation and target EMA remain in `DynamicsCriticAdaptation`. Native MPPI planning, evaluation runners, figures, historical results and the six upstream-modified TD-MPC2 core files remain unchanged.
+
+The CPU and Linux golden fixtures retain their original source SHA-256 values. Golden tests compare every numerical and RNG field against those fixtures; the migrated source paths are checked as changed provenance separately, while unmigrated source hashes must match. No fixture is regenerated.

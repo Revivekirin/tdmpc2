@@ -1,4 +1,4 @@
-"""Composition checks; numerical behavior is guarded by the immutable goldens."""
+"""Canonical composition checks; numerics are guarded by immutable goldens."""
 
 from pathlib import Path
 import random
@@ -40,11 +40,10 @@ def test_episode_composition_reuses_original_object_and_state(method, mode, impl
         assert random.getstate() == python_rng
     strategy = binding.strategy
     assert binding.runner is None and strategy is not None
-    assert type(strategy.implementation) is implementation
+    assert type(strategy) is implementation
     assert strategy.settings is original
-    assert strategy.replay is strategy.implementation.replay
-    assert strategy.rng is strategy.implementation.rng
-    assert equal_state(strategy.state_dict(), strategy.implementation.state_dict())
+    assert strategy.replay.maxlen == original['capacity']
+    assert strategy.rng.getstate() == random.Random(11).getstate()
     strategy.assert_fixed()
 
 
@@ -62,12 +61,10 @@ def test_dynamics_q_composition_reuses_optimizer_and_replay_ownership():
         assert torch.equal(torch.get_rng_state(), cpu_rng)
         assert random.getstate() == python_rng
     strategy = binding.strategy
-    assert strategy is not None and type(strategy.implementation) is DynamicsQAdapter
-    assert strategy.replay is strategy.implementation.replay
-    assert strategy.rng is strategy.implementation.rng
-    assert strategy.dynamics_optimizer is strategy.implementation.dynamics_optimizer
-    assert strategy.q_optimizer is strategy.implementation.q_optimizer
-    assert strategy.state_dict().keys() == strategy.implementation.state_dict().keys()
+    assert strategy is not None and type(strategy) is DynamicsQAdapter
+    assert strategy.replay.maxlen == config['capacity']
+    assert strategy.rng.getstate() == random.Random(identity['adaptation_seed']).getstate()
+    assert {id(p) for p in strategy.dynamics_params}.isdisjoint({id(p) for p in strategy.q_params})
     strategy.assert_fixed()
 
 

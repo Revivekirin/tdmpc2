@@ -270,7 +270,33 @@ def test_golden_research_numerical_baselines():
     assert GOLDEN.exists(), f'Missing platform-specific golden fixture: {GOLDEN}; record it before refactoring'
     expected=json.loads(GOLDEN.read_text())
     assert expected['versions']==dict(torch=torch.__version__.split('+')[0],numpy=np.__version__)
-    compare(expected,observation_bundle())
+    actual=observation_bundle()
+    # The fixture records the pre-migration source paths. Compare all numerical,
+    # RNG and checkpoint observations; inspect current source provenance separately.
+    compare({k:v for k,v in expected.items() if k!='source_sha256'},
+            {k:v for k,v in actual.items() if k!='source_sha256'})
+    migrated={'tdmpc2/common/stage3a.py','tdmpc2/common/dynamics_q.py'}
+    assert expected['source_sha256']==json.loads(CPU_GOLDEN.read_text())['source_sha256']
+    for path, digest in expected['source_sha256'].items():
+        if path in migrated:
+            assert actual['source_sha256'][path]!=digest, f'{path} was expected to become a compatibility module'
+        else:
+            assert actual['source_sha256'][path]==digest, f'Unmigrated source changed: {path}'
+
+
+def test_migrated_adaptation_ownership_and_historical_provenance():
+    from research.dynamics_shift.dynamics import DynamicsAdaptation
+    from research.dynamics_shift.dynamics_critic import DynamicsCriticAdaptation
+    from research.dynamics_shift.decision import DecisionAdapter
+    from common.decision_ttt import DecisionAdapter as LegacyDecisionAdapter
+    assert EpisodeAdapter is DynamicsAdaptation
+    assert DynamicsQAdapter is DynamicsCriticAdaptation
+    assert LegacyDecisionAdapter is DecisionAdapter
+    assert DecisionAdapter.loss is DynamicsAdaptation.loss
+    assert DecisionAdapter._optimizer_steps is DynamicsAdaptation._optimizer_steps
+    original=json.loads(CPU_GOLDEN.read_text())['source_sha256']
+    assert original['tdmpc2/common/stage3a.py']=='47b7e36f892d63f867db7881da19e2edc53dd338317380e5da22d97b4855a3cc'
+    assert original['tdmpc2/common/dynamics_q.py']=='59141b63b306fc2092ef674f61e6f7290b531e151a3bd3176c3b609a70817225'
 
 
 def test_dynamics_q_schedule_and_ownership_contract():
