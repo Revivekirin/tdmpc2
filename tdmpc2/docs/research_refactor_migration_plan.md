@@ -122,3 +122,11 @@ Move shared Q/planner numerics to `PlanningAnalyzer` while retaining real Q-swap
 - Existing validation logs and `analysis/REFACTOR_STATUS.md` report earlier PASS/caveats. No tests, training or expensive evaluation were run in Phase 0.
 - `control_q` HEAD describes 36 conditions/108 streams in three archived inputs; optional closed-loop Q-swap figure requires separate full real evaluation. Current code uses fixed source names and hard coverage assertions, so generalizing report inputs is a separate decision.
 - Check historical references from results, shell scripts, notebooks, external server jobs and archive manifests before marking any candidate obsolete or changing a path.
+
+## Phase 1B-1 implementation record (2026-11-20)
+
+The inner checkout now contains `tdmpc2/research/dynamics_shift/` with typed configuration, state, strategy, runner and replay boundaries, transparent delegates and a composition root. `docs/research/ARCHITECTURE.md` records the package tree, class responsibilities and old-to-new mapping; `docs/research/ADAPTATION_METHODS.md` records method-specific invariants. Existing constructors, CLI modules, replay owners, snapshots, evaluation and all six upstream-modified core files remain unchanged. Decision TTT inherits Dynamics-only's exact learning objective and optimizer step and changes the update schedule and scheduler state only.
+
+Local bridge and immutable Phase 1A golden execution: **43 passed, 2 subtests passed**. Additional Stage 3 runner/matched/Q-planning contracts: **15 passed**. The D+Q bridge test compares direct and delegated CPU updates for identical model state, sampled replay indices, adapter RNG state, losses, optimizer state, EMA and update counters. Linux CUDA and NS-Gym server reruns are pending; this local result does not validate the bridge on CUDA or in a simulator. The original golden fixtures were read only and no loss, optimizer or training implementation moved.
+
+Phase 1B-2 remains outside this phase. Do not migrate algorithm code, rename legacy modules, or delete historical files based on this bridge alone.
