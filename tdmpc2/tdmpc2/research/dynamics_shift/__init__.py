@@ -18,6 +18,11 @@ from .runner import AdaptationRunner, TransitionEvent
 from .joint import JointAdaptation
 from .checkpoints import CheckpointDescriptor, LoadedCheckpoint, load_checkpoint, model_hashes
 from .composer import CheckpointComposer, ComposedController
+from .evaluation import (
+    EvaluationCallbacks, EvaluationConfig, EvaluationIdentity, EvaluationRunner,
+    EvaluationStep, EpisodeResult, FixedBankResult, aligned_transitions,
+    critic_intervention_controllers, evaluate_fixed_bank, require_bank,
+)
 
 __all__ = [
     "AdaptationBinding", "AdaptationConfig", "AdaptationReplayBuffer",
@@ -27,5 +32,8 @@ __all__ = [
     "TransitionEvent", "JointAdaptation",
     "CheckpointDescriptor", "LoadedCheckpoint", "load_checkpoint", "model_hashes",
     "CheckpointComposer", "ComposedController",
+    "EvaluationCallbacks", "EvaluationConfig", "EvaluationIdentity",
+    "EvaluationRunner", "EvaluationStep", "EpisodeResult", "FixedBankResult",
+    "aligned_transitions", "critic_intervention_controllers", "evaluate_fixed_bank", "require_bank",
     "compose_adaptation",
 ]

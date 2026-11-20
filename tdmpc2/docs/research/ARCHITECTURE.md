@@ -163,3 +163,23 @@ flowchart LR
   COMPOSER --> SWAP[D+Q dynamics + nominal online Q]
   COMPOSER --> J[Joint]
 ```
+
+## Phase 2B evaluation boundary
+
+`evaluation.py` defines `EvaluationConfig`, `EvaluationCallbacks`, `EvaluationStep`, `EpisodeResult`, `EvaluationIdentity` and `EvaluationRunner`. The runner owns one seed/environment/reset/action/step/record/verification/close sequence. The caller binds the original task-specific environment, native `TDMPC2.act`, physical readback, metrics and output writer. It does not import either simulator stack. The first migrated production path is HalfCheetah Joint final control in `experiments/nsgym/scripts/evaluate_joint_final.py`; its prediction, CSV and completion code remain in the existing CLI.
+
+```mermaid
+flowchart LR
+  CLI[Joint final CLI] --> CALLBACKS[HalfCheetah evaluation callbacks]
+  CALLBACKS --> RUNNER[EvaluationRunner]
+  RUNNER --> ENV[existing NS-Gym factory]
+  RUNNER --> ACT[unchanged native TDMPC2.act]
+  RUNNER --> GUARD[model and optimizer immutability guard]
+  CALLBACKS --> METRICS[existing physical and return metrics]
+  CLI --> WRITER[existing CSV and completion writer]
+  BANK[immutable saved bank] --> BAPI[require_bank / evaluate_fixed_bank]
+  NOMINAL[nominal + historical snapshots] --> COMPOSER[CheckpointComposer]
+  COMPOSER --> INTERVENTION[A/B/C controller identity checks]
+```
+
+Frozen, Dynamics-only, D+Q, Reacher and control-Q historical CLI paths still own their distinct episode loops or `ttt.rollout` calls; their source-hash contracts need audited parity before migration. ManiSkill2 `evaluate.py`, `evaluate_shift.py` and `evaluate_severity.py` retain native-step/action-repeat behavior in the separate runtime. The complete protocol matrix, planner RNG policy, bank and intervention contracts are in [EVALUATION_PROTOCOLS.md](EVALUATION_PROTOCOLS.md). Phase 2B migration is partial and does not assert ManiSkill2 simulator parity.

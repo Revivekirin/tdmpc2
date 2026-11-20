@@ -189,13 +189,14 @@ def assert_unchanged(agent, before):
 def evaluate_one(a, config, frozen, check, mode, limit=None, max_steps=None):
     import numpy as np
     import torch
+    from research.dynamics_shift.evaluation import EvaluationCallbacks, EvaluationConfig, EvaluationRunner
     agent, before = load_agent(a, check, joint.protocol())
     parameter, severity, adaptation_seed = key(check)
     seeds = config['evaluation_seeds'][:limit] if limit else config['evaluation_seeds']
     result = []
     for seed in seeds:
-        ttt.seeded(seed)  # MPPI samples policy noise from torch RNG.
         if mode == 'prediction':
+            ttt.seeded(seed)  # Preserve the historical prediction-mode RNG reset.
             bank_key = (parameter, severity, seed)
             filename = frozen['files'][bank_key]
             bank = Path(a.reference) / 'frozen' / filename
@@ -221,56 +222,68 @@ def evaluate_one(a, config, frozen, check, mode, limit=None, max_steps=None):
                                bank_file=filename, bank_sha256=frozen['hashes'][filename]))
         else:
             condition = dict(parameter=parameter, severity=severity)
-            env = ttt.environment(config, condition, 'fixed')
-            try:
-                obs, _ = env.reset(seed=seed)
-                rewards = []; velocity = []; cost = []; action_abs = []; action_sat = []
-                force_rms = []; force_sat = []; actual = []
-                terminated = truncated = False
-                with torch.no_grad():
-                    for step in range(max_steps or config['horizon']):
-                        action = agent.act(torch.as_tensor(obs, dtype=torch.float32),
-                                           t0=step == 0, eval_mode=True).detach().cpu().numpy()
-                        assert action.shape == (6,) and np.isfinite(action).all()
-                        obs, reward, terminated, truncated, info = env.step(action)
-                        assert obs.shape == (17,) and np.isfinite(obs).all() and math.isfinite(float(reward))
-                        force = env.unwrapped.data.actuator_force.copy()
-                        model = env.unwrapped.model
-                        limited = model.actuator_forcelimited.astype(bool)
-                        bounds = model.actuator_forcerange
-                        rewards.append(float(reward)); velocity.append(float(info['x_velocity']))
-                        cost.append(-float(info['reward_ctrl']))
-                        action_abs.append(float(np.abs(action).mean()))
-                        action_sat.append(float((np.abs(action) >= .99).mean()))
-                        force_rms.append(float(np.sqrt(np.mean(force**2))))
-                        if limited.any():
-                            force_sat.append(float(np.mean((force[limited] <= bounds[limited, 0] + 1e-6) |
-                                                           (force[limited] >= bounds[limited, 1] - 1e-6))))
-                        actual.append(float(env.readback()))
-                        assert abs(actual[-1] - env.nominal_value * severity) <= 1e-10
-                        if terminated or truncated:
-                            break
-                assert len(rewards) == (max_steps or config['horizon'])
-                if max_steps is None:
-                    assert truncated and not terminated
-                ref = frozen['episodes'][(parameter, severity, seed)]
-                result.append(dict(parameter=parameter, severity=severity, adaptation_seed=adaptation_seed,
-                                   evaluation_seed=seed, joint_return=sum(rewards),
-                                   frozen_return=float(ref['episode_return']) if max_steps is None else None,
-                                   partial_smoke=max_steps is not None,
-                                   joint_forward_velocity=float(np.mean(velocity)),
-                                   frozen_forward_velocity=float(ref['forward_velocity']),
-                                   joint_control_cost=sum(cost), frozen_control_cost=float(ref['control_cost']),
-                                   joint_reward_run=sum(rewards) + sum(cost), joint_action_abs=float(np.mean(action_abs)),
-                                   joint_action_component_saturation=float(np.mean(action_sat)),
-                                   joint_actuator_force_rms=float(np.mean(force_rms)),
-                                   joint_actuator_force_saturation=float(np.mean(force_sat)) if force_sat else None,
-                                   force_limited_count=int(limited.sum()), episode_length=len(rewards),
-                                   terminated=bool(terminated), truncated=bool(truncated),
-                                   nominal_parameter=float(env.nominal_value), actual_parameter_min=min(actual),
-                                   actual_parameter_max=max(actual)))
-            finally:
-                env.close()
+            rewards = []; velocity = []; cost = []; action_abs = []; action_sat = []
+            force_rms = []; force_sat = []; actual = []
+            physical = {}
+
+            def action_for(observation, step):
+                action = agent.act(torch.as_tensor(observation, dtype=torch.float32),
+                                   t0=step == 0, eval_mode=True).detach().cpu().numpy()
+                assert action.shape == (6,) and np.isfinite(action).all()
+                return action
+
+            def record_step(env, event):
+                obs, reward, info, action = event.next_observation, event.reward, event.info, event.action
+                assert obs.shape == (17,) and np.isfinite(obs).all() and math.isfinite(float(reward))
+                force = env.unwrapped.data.actuator_force.copy()
+                model = env.unwrapped.model
+                limited = model.actuator_forcelimited.astype(bool)
+                bounds = model.actuator_forcerange
+                rewards.append(float(reward)); velocity.append(float(info['x_velocity']))
+                cost.append(-float(info['reward_ctrl']))
+                action_abs.append(float(np.abs(action).mean()))
+                action_sat.append(float((np.abs(action) >= .99).mean()))
+                force_rms.append(float(np.sqrt(np.mean(force**2))))
+                if limited.any():
+                    force_sat.append(float(np.mean((force[limited] <= bounds[limited, 0] + 1e-6) |
+                                                   (force[limited] >= bounds[limited, 1] - 1e-6))))
+                actual.append(float(env.readback()))
+                assert abs(actual[-1] - env.nominal_value * severity) <= 1e-10
+                physical.update(limited=limited, nominal_value=float(env.nominal_value))
+
+            protocol = EvaluationCallbacks(
+                seed=ttt.seeded,
+                create_environment=lambda: ttt.environment(config, condition, 'fixed'),
+                reset=lambda env, episode_seed: env.reset(seed=episode_seed)[0],
+                action=action_for,
+                step=lambda env, action: env.step(action),
+                record_step=record_step,
+                verify_unchanged=lambda: assert_unchanged(agent, before),
+            )
+            with torch.no_grad():
+                episode = EvaluationRunner().run(
+                    EvaluationConfig(seed, max_steps or config['horizon']), protocol)
+            assert len(rewards) == (max_steps or config['horizon'])
+            terminated = episode.steps[-1].terminated
+            truncated = episode.steps[-1].truncated
+            if max_steps is None:
+                assert truncated and not terminated
+            ref = frozen['episodes'][(parameter, severity, seed)]
+            result.append(dict(parameter=parameter, severity=severity, adaptation_seed=adaptation_seed,
+                               evaluation_seed=seed, joint_return=sum(rewards),
+                               frozen_return=float(ref['episode_return']) if max_steps is None else None,
+                               partial_smoke=max_steps is not None,
+                               joint_forward_velocity=float(np.mean(velocity)),
+                               frozen_forward_velocity=float(ref['forward_velocity']),
+                               joint_control_cost=sum(cost), frozen_control_cost=float(ref['control_cost']),
+                               joint_reward_run=sum(rewards) + sum(cost), joint_action_abs=float(np.mean(action_abs)),
+                               joint_action_component_saturation=float(np.mean(action_sat)),
+                               joint_actuator_force_rms=float(np.mean(force_rms)),
+                               joint_actuator_force_saturation=float(np.mean(force_sat)) if force_sat else None,
+                               force_limited_count=int(physical['limited'].sum()), episode_length=len(rewards),
+                               terminated=bool(terminated), truncated=bool(truncated),
+                               nominal_parameter=physical['nominal_value'], actual_parameter_min=min(actual),
+                               actual_parameter_max=max(actual)))
         assert_unchanged(agent, before)
     return result
 
