@@ -16,6 +16,7 @@ from common.decision_ttt import DecisionAdapter
 from common.dynamics_q import DynamicsQAdapter
 from common.stage3a import EpisodeAdapter, equal_state
 from research.dynamics_shift import AdaptationConfig, compose_adaptation
+from research.dynamics_shift.joint import JointAdaptation
 from test_stage3a import Model, settings
 
 
@@ -82,6 +83,23 @@ def test_joint_runner_delegates_original_arguments_without_constructing_algorith
     result = binding.runner.run(marker, budget=3000)
     assert calls == [((marker,), {'budget': 3000})]
     assert result is not None
+
+
+def test_joint_factory_binds_original_agent_and_replay_without_rng_or_optimizer_changes():
+    class Replay:
+        num_eps = 0
+    class Agent:
+        def update(self, replay):
+            raise AssertionError('No update should run before a completed episode')
+    agent, replay = Agent(), Replay()
+    cpu_rng, python_rng = torch.get_rng_state().clone(), random.getstate()
+    binding = compose_adaptation(AdaptationConfig('joint',
+        {'first_update':1000,'update_every':1}), agent=agent, replay=replay)
+    assert type(binding.strategy) is JointAdaptation and binding.runner is None
+    assert binding.strategy.agent is agent and binding.strategy.replay is replay
+    assert binding.strategy.observe() == {}
+    assert binding.strategy.transitions == 1 and binding.strategy.updates == 0
+    assert torch.equal(cpu_rng,torch.get_rng_state()) and python_rng == random.getstate()
 
 
 def test_factory_rejects_method_configuration_mismatch():

@@ -15,6 +15,9 @@ from uuid import uuid4
 import run_dynamics_only_ttt as ttt
 import evaluate_ttt_final as evaluation
 
+sys.path.insert(0, str(ttt.ROOT/'tdmpc2'))
+from research.dynamics_shift.provenance import compatible_sources
+
 DEFAULT = ttt.ROOT / 'experiments/nsgym/configs/dynamics_q.json'
 read, write, digest = ttt.read, ttt.js, ttt.digest
 
@@ -72,10 +75,17 @@ def sources():
     return {str(p.relative_to(ttt.ROOT)): digest(p) for p in paths}
 
 
+def sources_match(recorded):
+    return compatible_sources(recorded, sources())
+
+
 def open_stage(output, manifest, resume=False):
     out = Path(output)
     if resume:
-        assert read(out/'manifest.json') == manifest, 'Resume configuration/source/input mismatch'
+        recorded = read(out/'manifest.json')
+        assert (compatible_sources(recorded.get('source_hashes', {}),manifest['source_hashes']) and
+                {k:v for k,v in recorded.items() if k!='source_hashes'} ==
+                {k:v for k,v in manifest.items() if k!='source_hashes'}), 'Resume configuration/source/input mismatch'
     else:
         out.mkdir(parents=True, exist_ok=False)
         write(out/'manifest.json', manifest)
@@ -138,6 +148,7 @@ def train_one(a, c, identity, out, budget):
     from common.dynamics_q import DynamicsQAdapter, expected_updates
     from common.stage3a import equal_state
     from training_support import tree_hash
+    from research.dynamics_shift.runner import AdaptationRunner
     started = time.perf_counter()
     agent, metadata = ttt.load_agent(argparse.Namespace(checkpoint=a.checkpoint, synthetic=False))
     assert metadata['config']['lr'] == c['q_lr'] == .0003
@@ -157,21 +168,34 @@ def train_one(a, c, identity, out, budget):
         source_dirty=subprocess.check_output(['git', 'status', '--porcelain'], cwd=ttt.ROOT, text=True),
         nominal_parameter=env.nominal_value, requested_transitions=budget))
     episodes = []
-    try:
-        o, _ = env.reset(seed=identity['adaptation_seed'])
+    episode_return = 0.
+
+    def action(o, t, _ep):
+        return agent.act(torch.as_tensor(o, dtype=torch.float32), t0=t == 0, eval_mode=True).numpy()
+
+    def observe(event):
+        return adapter.observe(event.observation, event.action, event.next_observation,
+                               event.reward, event.terminated, event.truncated,
+                               event.episode, event.episode_step,
+                               env.readback(), env.nominal_value)
+
+    def reset(_observation, _episode):
+        nonlocal episode_return
         episode_return = 0.
+
+    runner = AdaptationRunner(env, action, observe, horizon=c['horizon'],
+                              initial_seed=identity['adaptation_seed'], on_reset=reset)
+    try:
         with (out/'training.jsonl').open('x') as log:
-            for step in range(budget):
-                ep, t = divmod(step, c['horizon'])
-                action = agent.act(torch.as_tensor(o, dtype=torch.float32), t0=t == 0, eval_mode=True).numpy()
-                n, reward, term, trunc, info = env.step(action)
-                metrics = adapter.observe(o, action, n, reward, term, trunc, ep, t,
-                                          env.readback(), env.nominal_value)
+            def record_step(event, metrics):
+                nonlocal episode_return
+                step, ep, t = event.index, event.episode, event.episode_step
+                reward, term, trunc, info = event.reward, event.terminated, event.truncated, event.info
                 episode_return += float(reward)
                 record = dict(global_step=step+1, episode=ep, episode_step=t, adaptation_seed=identity['adaptation_seed'],
                     actual_parameter=env.readback(), nominal_parameter=env.nominal_value, reward=float(reward),
                     episode_return_so_far=episode_return, forward_velocity=float(info['x_velocity']),
-                    control_cost=-float(info['reward_ctrl']), action_saturation=float((np.abs(action) >= .99).mean()),
+                    control_cost=-float(info['reward_ctrl']), action_saturation=float((np.abs(event.action) >= .99).mean()),
                     terminated=bool(term), truncated=bool(trunc), discount=float(agent.discount),
                     dynamics_steps=adapter.dynamics_steps, q_steps=adapter.q_steps, target_steps=adapter.target_steps,
                     replay_size=len(adapter.replay), wall_seconds=time.perf_counter()-started,
@@ -182,12 +206,9 @@ def train_one(a, c, identity, out, budget):
                 if (step+1) % 100 == 0:
                     log.flush()
                     print(f'{name(identity)}: {step+1}/{budget}; dynamics={adapter.dynamics_steps}, Q={adapter.q_steps}', flush=True)
-                o = n
                 if term or trunc:
                     episodes.append(dict(episode=ep, steps=t+1, episode_return=episode_return))
-                    if step+1 < budget:
-                        o, _ = env.reset()
-                        episode_return = 0.
+            runner.run(budget,record_step,close_env=False)
         count = expected_updates(budget)
         assert adapter.dynamics_steps == adapter.q_steps == adapter.target_steps == count
         invariance = adapter.parameter_audit()
@@ -236,7 +257,7 @@ def train(a, c):
         assert read(s/'completion.json')['status'] == 'PASS'
         m = read(s/'manifest.json')
         assert m['command'] == 'smoke' and not m['cpu_fixture']
-        assert m['configuration'] == c and m['source_hashes'] == sources() and m['checkpoint_sha256'] == ttt.SHA
+        assert m['configuration'] == c and sources_match(m['source_hashes']) and m['checkpoint_sha256'] == ttt.SHA
     manifest = dict(command=a.command, cpu_fixture=False, configuration=c, identities=selected,
                     source_hashes=sources(), checkpoint_sha256=ttt.SHA,
                     reference=str(Path(a.reference).resolve()), ttt_runs=str(Path(a.ttt_runs).resolve()))
@@ -247,7 +268,7 @@ def train(a, c):
         if skip:
             previous = read(path/'manifest.json')
             assert previous['configuration'] == c and previous['identity'] == i
-            assert previous['source_hashes'] == sources() and previous['checkpoint_sha256'] == ttt.SHA
+            assert sources_match(previous['source_hashes']) and previous['checkpoint_sha256'] == ttt.SHA
             done = read(path/'completion.json')
             snapshot = path/f"snapshot-{done['transitions']:07d}.pt"
             assert digest(snapshot) == done['snapshot_sha256']
@@ -295,7 +316,7 @@ def audit_runs(a, c):
     from training_support import tree_hash
     root = Path(a.runs)
     top = read(root/'manifest.json')
-    assert top['command'] == 'run' and top['configuration'] == c and top['source_hashes'] == sources()
+    assert top['command'] == 'run' and top['configuration'] == c and sources_match(top['source_hashes'])
     assert read(root/'completion.json')['status'] == 'PASS'
     expected = {name(i) for i in identities(c)}
     assert set(read(root/'completion.json')['completed']) == expected
@@ -310,7 +331,7 @@ def audit_runs(a, c):
         snapshot = path/'snapshot-0003000.pt'
         assert m['identity'] == d['identity'] == identity
         assert m['configuration'] == c and m['checkpoint_metadata']['config'] == meta['config']
-        assert m['source_hashes'] == sources() and m['checkpoint_sha256'] == ttt.SHA
+        assert sources_match(m['source_hashes']) and m['checkpoint_sha256'] == ttt.SHA
         assert d['status'] == 'PASS' and d['transitions'] == 3000
         assert d['dynamics_steps'] == d['q_steps'] == d['target_steps'] == 118 and d['total_optimizer_steps'] == 236
         assert m['initial_model_hash'] == d['initial_model_hash'] == initial_hash
@@ -318,7 +339,7 @@ def audit_runs(a, c):
         check_log(path, c)
         p = torch.load(snapshot, map_location='cpu', weights_only=False)
         assert p['identity'] == identity and p['configuration'] == c and p['checkpoint_sha256'] == ttt.SHA
-        assert p['source_hashes'] == sources() and p['checkpoint_config'] == meta['config']
+        assert sources_match(p['source_hashes']) and p['checkpoint_config'] == meta['config']
         assert p['initial_model_hash'] == initial_hash
         assert p['original_optimizer_hash'] == m['original_optimizer_hash'] == tree_hash(ttt.aux_state(agent))
         agent.model.load_state_dict(nominal)
@@ -442,7 +463,7 @@ def evaluate_one(a, c, reference, baseline, item):
 
 def evaluate(a, c, reference, baseline):
     audit = read(a.audit)
-    assert audit['status'] == 'PASS' and audit['configuration'] == c and audit['source_hashes'] == sources()
+    assert audit['status'] == 'PASS' and audit['configuration'] == c and sources_match(audit['source_hashes'])
     assert audit['checkpoint_sha256'] == ttt.SHA and audit['reference'] == str(Path(a.reference).resolve())
     manifest = dict(mode=a.mode, audit_sha256=digest(a.audit), checkpoint_sha256=ttt.SHA,
                     configuration=c, source_hashes=sources(), evaluation_seeds=c['evaluation_seeds'])

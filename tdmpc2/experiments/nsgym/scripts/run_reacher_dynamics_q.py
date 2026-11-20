@@ -57,6 +57,10 @@ def sources():
     return {str(p.relative_to(r.ROOT)):r.sha(p) for p in paths}
 
 
+def sources_match(recorded):
+    return shared.compatible_sources(recorded, sources())
+
+
 def inventory(a,c,base,require_model=False):
     root=a.reference;s=r.read(a.selection or root/'nominal-home-01/selected_reacher_checkpoint.json')
     cp=a.checkpoint or Path(s['checkpoint']);s=dict(s,checkpoint=str(cp.resolve()))
@@ -149,28 +153,44 @@ def train_one(a,c,base,s,i,out,budget):
     import torch
     from common.dynamics_q import DynamicsQAdapter
     from training_support import tree_hash
+    from research.dynamics_shift.runner import AdaptationRunner
     started=time.perf_counter();agent,meta=r.load(s['checkpoint'],base);r.seeded(i['adaptation_seed'])
     assert agent.discount==.95
     aux=tree_hash(shared.ttt.aux_state(agent));ad=DynamicsQAdapter(agent,c,i);e=r.env(condition(i));episodes=[]
     r.write(out/'manifest.json',dict(identity=i,configuration=c,selection=s,source_hashes=sources(),optimizers=shared.optimizer_record(ad),
         checkpoint_metadata=meta,collection_eval_mode=True,episode_horizon=50,nominal_parameter=e.nominal_value))
+    episode_return=0.
+    def action(o,et,_ep):
+        assert np.shape(o)==(10,)
+        ac=r.action(agent,o,et)
+        assert np.shape(ac)==(2,)
+        return ac
+    def observe(event):
+        return ad.observe(event.observation,event.action,event.next_observation,
+                          event.reward,event.terminated,event.truncated,
+                          event.episode,event.episode_step,e.readback(),e.nominal_value)
+    def reset(_observation,_episode):
+        nonlocal episode_return
+        episode_return=0.
+    runner=AdaptationRunner(e,action,observe,horizon=50,
+                            initial_seed=i['adaptation_seed'],on_reset=reset,
+                            reset_on=lambda event: bool(event.truncated))
     try:
-        o,_=e.reset(seed=i['adaptation_seed']);episode_return=0.
         with (out/'training.jsonl').open('x') as log:
-            for t in range(budget):
-                ep,et=divmod(t,50);assert np.shape(o)==(10,)
-                ac=r.action(agent,o,et);assert np.shape(ac)==(2,)
-                n,reward,term,trunc,info=e.step(ac)
-                metrics=ad.observe(o,ac,n,reward,term,trunc,ep,et,e.readback(),e.nominal_value)
+            def record_step(event,metrics):
+                nonlocal episode_return
+                t,ep,et=event.index,event.episode,event.episode_step
+                ac,n,reward,term,trunc,info=(event.action,event.next_observation,event.reward,
+                                             event.terminated,event.truncated,event.info)
                 diagnostic=r.step_record(e,ac,n,reward,term,trunc,info)
                 episode_return+=reward
                 row=dict(global_step=t+1,episode=ep,episode_step=et,dynamics_steps=ad.dynamics_steps,q_steps=ad.q_steps,
                     target_steps=ad.target_steps,replay_size=len(ad.replay),metrics=metrics,**diagnostic)
-                log.write(json.dumps(row,allow_nan=False)+'\n');o=n
+                log.write(json.dumps(row,allow_nan=False)+'\n')
                 if trunc:
-                    episodes.append(dict(**i,episode=ep,episode_return=episode_return));episode_return=0.
-                    if t+1<budget:o,_=e.reset()
+                    episodes.append(dict(**i,episode=ep,episode_return=episode_return))
                 if (t+1)%100==0:log.flush();print(f'{label(i)}: {t+1}/{budget}; D={ad.dynamics_steps}, Q={ad.q_steps}',flush=True)
+            runner.run(budget,record_step,close_env=False)
         assert ad.dynamics_steps==ad.q_steps==ad.target_steps==count(c,budget)
         audit=ad.parameter_audit();assert all(x['changed']==(x['component'] in ('dynamics','q','target_q')) for x in audit)
         assert tree_hash(shared.ttt.aux_state(agent))==aux
@@ -194,7 +214,7 @@ def train(a,c,base,s):
         assert a.smoke_result,'--smoke-result required'
         d=r.read(a.smoke_result/'completion.json');m=r.read(a.smoke_result/'manifest.json')
         assert d['status']=='PASS' and m['command']=='smoke' and not m['cpu_fixture']
-        assert m['configuration']==c and m['selection']['model_sha256']==s['model_sha256'] and m['source_hashes']==sources()
+        assert m['configuration']==c and m['selection']['model_sha256']==s['model_sha256'] and sources_match(m['source_hashes'])
     manifest=dict(command=a.command,cpu_fixture=False,configuration=c,selection=s,identities=items,source_hashes=sources())
     out=shared.open_stage(a.output,manifest,a.resume);passed=[];failed=[]
     for i in items:
@@ -202,7 +222,7 @@ def train(a,c,base,s):
         try:
             if skip:
                 m=r.read(target/'manifest.json');d=r.read(target/'completion.json')
-                assert m['configuration']==c and m['source_hashes']==sources() and m['identity']==i
+                assert m['configuration']==c and sources_match(m['source_hashes']) and m['identity']==i
                 assert r.sha(target/Path(d['snapshot']).name)==d['snapshot_sha256']
             else:train_one(a,c,base,s,i,target,100 if a.command=='smoke' else c['transitions'])
             passed.append(label(i));print('PASS',label(i),flush=True)
@@ -218,11 +238,11 @@ def restore(s,base,c,path):
     from common.dynamics_q import DynamicsQAdapter
     from training_support import tree_hash
     d=r.read(path/'completion.json');m=r.read(path/'manifest.json');assert d['status']=='PASS'
-    assert m['configuration']==c and m['source_hashes']==sources() and m['selection']['model_sha256']==s['model_sha256']
+    assert m['configuration']==c and sources_match(m['source_hashes']) and m['selection']['model_sha256']==s['model_sha256']
     snapshot=path/Path(d['snapshot']).name;assert r.sha(snapshot)==d['snapshot_sha256']
     agent,_=r.load(s['checkpoint'],base);ad=DynamicsQAdapter(agent,c,d['identity'])
     p=torch.load(snapshot,map_location=agent.device,weights_only=False)
-    assert p['configuration']==c and p['source_hashes']==sources() and p['selection']['model_sha256']==s['model_sha256']
+    assert p['configuration']==c and sources_match(p['source_hashes']) and p['selection']['model_sha256']==s['model_sha256']
     assert p['identity']==d['identity'];agent.model.load_state_dict(p['model']);ad.load_state_dict(p['adapter'])
     assert tree_hash(ad.fixed_state())==d['fixed_hash']==p['fixed_hash']
     assert tree_hash(shared.ttt.aux_state(agent))==p['original_optimizer_hash']
@@ -240,7 +260,7 @@ def restore(s,base,c,path):
 
 def completed_items(a,c):
     top=r.read(a.runs/'manifest.json');d=r.read(a.runs/'completion.json')
-    assert d['status']=='PASS' and top['command']=='run' and top['configuration']==c and top['source_hashes']==sources()
+    assert d['status']=='PASS' and top['command']=='run' and top['configuration']==c and sources_match(top['source_hashes'])
     wanted=identities(c,a)
     assert {label(i) for i in wanted}<={*d['completed']}
     return wanted
@@ -341,12 +361,12 @@ def aggregate(a,c):
     selected,metadata=inventory(a,c,r.config(r.DEFAULT))
     assert r.read(a.runs/'completion.json')['status']=='PASS'
     run_manifest=r.read(a.runs/'manifest.json')
-    assert run_manifest['configuration']==c and run_manifest['source_hashes']==sources()
+    assert run_manifest['configuration']==c and sources_match(run_manifest['source_hashes'])
     expected={(i['family'],float(i['severity']),i['adaptation_seed'],s) for i in identities(c) for s in c['evaluation_seeds']}
     def key(x):return x['family'],float(x['severity']),int(x['adaptation_seed']),int(x.get('seed',x.get('evaluation_seed')))
     def dq_stage(path,mode):
         top=r.read(path/'completion.json');m=r.read(path/'manifest.json')
-        assert top['status']=='PASS' and m['mode']==mode and m['configuration']==c and m['source_hashes']==sources()
+        assert top['status']=='PASS' and m['mode']==mode and m['configuration']==c and sources_match(m['source_hashes'])
         assert m['selection']['model_sha256']==selected['model_sha256']
         data=[]
         for i in identities(c):

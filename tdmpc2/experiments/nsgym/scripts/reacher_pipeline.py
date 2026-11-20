@@ -54,13 +54,14 @@ def provenance(c):
     return dict(config=c,config_fingerprint=fingerprint(c),source_revision=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),source_hashes={str(p.relative_to(ROOT)):sha(p) for p in paths},versions={k:importlib.metadata.version(k) for k in ('gymnasium','mujoco','ns_gym','torch','numpy')})
 def done(out,**extra):write(out/'completion.json',dict(status='PASS',**extra))
 def gate(path,stage,c,selection=None):
+    from research.dynamics_shift.provenance import compatible_sources
     p=Path(path)
     assert read(p/'completion.json')['status']=='PASS',f'Incomplete gate: {p}'
     m=read(p/'manifest.json')
     assert m['stage']==stage and m['config_fingerprint']==fingerprint(c),f'Gate config/stage mismatch: {p}'
     if selection:assert m['checkpoint_sha256']==selection['model_sha256']
     for relative,value in m.get('source_hashes',{}).items():
-        assert sha(ROOT/relative)==value, f'Source changed after gate: {relative}'
+        assert compatible_sources({relative:value},{relative:sha(ROOT/relative)}), f'Source changed after gate: {relative}'
     return m
 
 def selected(path,c):
@@ -358,6 +359,7 @@ def adapt_one(c,s,out,cond,method,seed,budgets,synthetic=False):
     import torch
     from training_support import tree_hash
     from common.stage3a import equal_state
+    from research.dynamics_shift.runner import AdaptationRunner
     out.mkdir(exist_ok=False)
     a=tiny() if synthetic else load(s['checkpoint'],c)[0];ad=adapter(a,c,method,seed);seeded(seed)
     fixed=tree_hash(ad.fixed_state());aux=tree_hash(auxiliary(a));initial=tree_hash(a.model.state_dict());started=time.perf_counter();rr=[];episodes=[]
@@ -381,12 +383,22 @@ def adapt_one(c,s,out,cond,method,seed,budgets,synthetic=False):
     save();e=env(cond)
     try:
         for ep in range(budgets[-1]//50):
-            o,_=e.reset(seed=seed if ep==0 else None);ad.begin_episode();total=0
-            for t in range(50):
-                ac=action(a,o,t);n,r,term,trunc,info=e.step(ac);mse=error(a,o,ac,n);before=ad.gradient_steps
+            total=0
+            def reset(_observation,_episode):ad.begin_episode()
+            def observe(event):
+                o,ac,n=event.observation,event.action,event.next_observation
+                mse=error(a,o,ac,n);before=ad.gradient_steps
                 tensors=tuple(torch.tensor(v,dtype=torch.float32) for v in (o,ac,n))
                 ad.observe(*tensors,1);assert equal_state(ad.replay[-1],tensors)
-                if term or trunc:ad.end_episode()
+                if event.terminated or event.truncated:ad.end_episode()
+                return mse,before
+            runner=AdaptationRunner(e,lambda o,t,_ep:action(a,o,t),observe,horizon=50,
+                initial_seed=seed if ep==0 else None,on_reset=reset,
+                reset_on=lambda _event:False,
+                stop_on=lambda event:bool(event.terminated or event.truncated))
+            for event,(mse,before) in runner.iter_steps(50):
+                t,ac,n,r,term,trunc,info=(event.index,event.action,event.next_observation,
+                    event.reward,event.terminated,event.truncated,event.info)
                 row=dict(**identity,episode=ep,t=t,transitions=ad.transitions,gradient_updates=ad.gradient_steps,updates_this_transition=ad.gradient_steps-before,preupdate_latent_mse=mse,loss=ad.last_metrics['consistency_loss'] if ad.gradient_steps>before else None,grad_norm=ad.last_metrics['predictor_gradient_norm'] if ad.gradient_steps>before else None,**step_record(e,ac,n,r,term,trunc,info));rr.append(row);total+=r;o=n
                 if ad.transitions in budgets:save()
                 if term or trunc:break

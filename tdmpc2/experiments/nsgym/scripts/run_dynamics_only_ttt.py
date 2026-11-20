@@ -153,13 +153,19 @@ def error(agent,o,a,n):
 
 
 def rollout(agent,adapter,c,cond,schedule,seed,env,episode,training):
-    o,_=env.reset(seed=seed if episode==0 or not training else None)
-    if training: adapter.begin_episode()
-    data=[]; observations=[o.copy()]; actions=[]
-    for t in range(c['horizon']):
+    from research.dynamics_shift.runner import AdaptationRunner
+    data=[];observations=[];actions=[]
+    begin=0.
+    def reset(o,_episode):
+        observations.append(o.copy())
+        if training:adapter.begin_episode()
+    def before_step():
+        nonlocal begin
         begin=time.perf_counter()
-        action=agent.act(torch.tensor(o,dtype=torch.float32),t0=t==0,eval_mode=True).detach().cpu().numpy()
-        n,r,term,trunc,info=env.step(action)
+    def act(o,t,_episode):
+        return agent.act(torch.tensor(o,dtype=torch.float32),t0=t==0,eval_mode=True).detach().cpu().numpy()
+    def observe(event):
+        o,action,n=(event.observation,event.action,event.next_observation)
         mse=error(agent,o,action,n) # pre-update error, observed transition only
         before=adapter.gradient_steps
         if training:
@@ -168,7 +174,15 @@ def rollout(agent,adapter,c,cond,schedule,seed,env,episode,training):
             # native_steps above counts Gym transitions, never control repeats.
             if not equal_state(adapter.replay[-1], tuple(torch.tensor(v,dtype=torch.float32) for v in (o,action,n))):
                 raise AssertionError('Replay transition misalignment')
-            if term or trunc: adapter.end_episode()
+            if event.terminated or event.truncated:adapter.end_episode()
+        return mse,before
+    runner=AdaptationRunner(env,act,observe,horizon=c['horizon'],
+        initial_seed=seed if episode==0 or not training else None,
+        before_step=before_step,on_reset=reset,reset_on=lambda _event:False,
+        stop_on=lambda event:bool(event.terminated or event.truncated))
+    for event,(mse,before) in runner.iter_steps(c['horizon']):
+        t,o,action,n,r,term,trunc,info=(event.index,event.observation,event.action,
+            event.next_observation,event.reward,event.terminated,event.truncated,event.info)
         force=env.unwrapped.data.actuator_force.copy(); model=env.unwrapped.model
         limited=model.actuator_forcelimited.astype(bool); bounds=model.actuator_forcerange
         force_sat=float(np.mean((force[limited]<=bounds[limited,0]+1e-6)|(force[limited]>=bounds[limited,1]-1e-6))) if limited.any() else None

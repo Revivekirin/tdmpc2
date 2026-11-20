@@ -1,13 +1,16 @@
-# Dynamics-shift research architecture — Phase 1B-2
+# Dynamics-shift research architecture — Phase 1B-3
 
-The active inner project owns adaptation in `tdmpc2/research/dynamics_shift/`. The original TD-MPC2 agent, planner and training buffer are unchanged. Joint RL remains with its existing runner. NS-Gym and ManiSkill2 runtime imports remain separate.
+The active inner project owns adaptation in `tdmpc2/research/dynamics_shift/`. The original TD-MPC2 agent, planner and training buffer are unchanged. Joint learning is invoked through `JointAdaptation`, which calls the original `TDMPC2.update(replay)`. NS-Gym and ManiSkill2 runtime imports remain separate.
 
 ```text
 tdmpc2/research/dynamics_shift/
 ├── __init__.py          canonical exports
 ├── interfaces.py        method/config/state/strategy/runner contracts
 ├── factory.py           selection and runner composition
-├── adapters.py          Joint and existing stream runner delegate
+├── adapters.py          historical full-stream callable delegate
+├── runner.py            environment/transition/budget/log/checkpoint event loop
+├── joint.py             original TD-MPC2 update delegation and Joint cadence
+├── provenance.py        audited pre/post runner source identities
 ├── dynamics.py          DynamicsAdaptation, episode validation, native budget monitor
 ├── decision.py          DecisionAdapter (DynamicsAdaptation objective; decision schedule)
 ├── dynamics_critic.py   DynamicsCriticAdaptation (separate D/Q optimizers, target EMA)
@@ -99,3 +102,48 @@ The original `common.buffer.Buffer` remains the Joint/TD-MPC2 training replay. T
 Only the original one-step dynamics MSE expression is shared numerically. D+Q categorical cross-entropy, actual-next-observation TD target, independent Adam steps, Q train/dropout mode, gradient isolation and target EMA remain in `DynamicsCriticAdaptation`. Native MPPI planning, evaluation runners, figures, historical results and the six upstream-modified TD-MPC2 core files remain unchanged.
 
 The CPU and Linux golden fixtures retain their original source SHA-256 values. Golden tests compare every numerical and RNG field against those fixtures; the migrated source paths are checked as changed provenance separately, while unmigrated source hashes must match. No fixture is regenerated.
+
+## Phase 1B-3 runner composition
+
+```mermaid
+flowchart LR
+  subgraph Before
+    HC[HalfCheetah Dynamics/Decision] --> HL[local env loop]
+    HDQ[HalfCheetah D+Q] --> DL[local env loop]
+    RDQ[Reacher D+Q] --> RL[local env loop]
+    RE[Reacher Dynamics/Decision] --> EL[local env loop]
+    JR[Joint RL] --> JL[local env loop + direct agent.update]
+  end
+  subgraph After
+    CLIs[unchanged NS-Gym entry points] --> RUN[AdaptationRunner]
+    RUN --> ENV[task-specific environment]
+    RUN --> POLICY[task/method action and reset policy]
+    RUN --> ADAPT[Dynamics / Decision / DynamicsCritic / Joint strategy]
+    ADAPT --> REPLAY[method-specific replay]
+    ADAPT --> MODEL[original TD-MPC2 model and update]
+    RUN --> OUTPUT[legacy log and checkpoint callbacks]
+  end
+```
+
+The canonical `AdaptationRunner` owns reset, action, real `env.step`, transition delivery, horizon/budget indices and optional logging/checkpoint callbacks. `iter_steps()` yields after strategy observation and before the next reset, preserving legacy artifact timing. `run()` can close on error; production call sites retain their existing `finally` blocks so final validation precedes environment close. The canonical package imports neither NS-Gym nor ManiSkill2.
+
+```mermaid
+classDiagram
+  AdaptationRunner --> TransitionEvent
+  AdaptationRunner --> DynamicsAdaptation
+  AdaptationRunner --> DecisionAdapter
+  AdaptationRunner --> DynamicsCriticAdaptation
+  AdaptationRunner --> JointAdaptation
+  JointAdaptation --> TDMPC2 : original update(buffer)
+```
+
+| Existing entry point | Canonical loop/strategy | Legacy responsibility retained |
+|---|---|---|
+| `run_dynamics_only_ttt.rollout` | `iter_steps` + Dynamics/Decision | physical diagnostics, CSV/NPZ/snapshot schema |
+| `run_dynamics_q.train_one` | `run` + DynamicsCritic | HalfCheetah metrics and snapshot schema |
+| `run_reacher_dynamics_q.train_one` | `run` + DynamicsCritic | Reacher metrics and selection gate |
+| `reacher_pipeline.adapt_one` | `iter_steps` + Dynamics/Decision | Reacher snapshot/reload checks |
+| `run_full_joint_rl.run_stream` | `run` + JointAdaptation | original `Buffer`, manifests, completion, evaluation |
+| `common.stage3b.run`, `adapt_shift.episode` | unchanged | ManiSkill2 native-step resume and simulator state |
+
+New artifacts record current source hashes. `provenance.compatible_sources` accepts a pre-migration runner hash only when the corresponding current runner file matches its audited post-migration hash. All model, environment and configuration hashes remain exact. Historical manifests are never rewritten; older unlisted runner hashes require separate audit. The factory now binds `JointAdaptation` when supplied the original agent, replay and settings; `ExistingRunnerAdapter` remains a compatibility delegate for callers supplying only a complete historical `run_stream` callable. Native MPPI, evaluation runners, historical results and figures are unchanged.

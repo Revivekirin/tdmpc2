@@ -10,9 +10,12 @@ import math
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
 
 import run_dynamics_only_ttt as base
+sys.path.insert(0, str(base.ROOT/'tdmpc2'))
+from research.dynamics_shift.provenance import compatible_sources
 
 COMPONENTS = ('_encoder', '_dynamics', '_reward', '_Qs', '_pi', '_target_Qs_params')
 REACHER_CONFIG = base.ROOT/'experiments/nsgym/configs/reacher_pipeline_v1.json'
@@ -142,6 +145,8 @@ def run_stream(a, c, identity, target, budget):
     from tensordict import TensorDict
     from common.buffer import Buffer
     from training_support import load_checkpoint, tree_hash
+    from research.dynamics_shift.joint import JointAdaptation
+    from research.dynamics_shift.runner import AdaptationRunner
 
     class CheckedBuffer(Buffer):
         sample_contract = None
@@ -196,6 +201,7 @@ def run_stream(a, c, identity, target, budget):
     cfg = deepcopy(agent.cfg)
     cfg.buffer_size = cfg.steps = c['replay_capacity']
     replay = CheckedBuffer(cfg)
+    strategy = JointAdaptation(agent, replay, c)
     if task=='reacher':
         from envs.nsgym.reacher_severity import SeverityReacher
         env=SeverityReacher(parameter=identity['parameter'],severity=identity['severity'],
@@ -215,6 +221,7 @@ def run_stream(a, c, identity, target, budget):
     base.js(target/'manifest.json',manifest)
     torch.cuda.reset_peak_memory_stats()
     updates = 0; update_seconds = 0.; episode = 0; episode_return = 0.; completed = []
+    trajectory = []
 
     def td(obs, action=None, reward=float('nan'), terminated=float('nan')):
         return TensorDict(dict(obs=torch.as_tensor(obs,dtype=torch.float32).unsqueeze(0),
@@ -222,38 +229,53 @@ def run_stream(a, c, identity, target, budget):
             reward=torch.tensor([reward],dtype=torch.float32),
             terminated=torch.tensor([terminated],dtype=torch.float32)),batch_size=[1])
 
+    def on_reset(obs, _episode):
+        nonlocal trajectory, episode_return
+        trajectory=[td(obs)];episode_return=0.
+
+    def action(obs, _step, _episode):
+        return agent.act(torch.as_tensor(obs,dtype=torch.float32),t0=len(trajectory)==1,
+                         eval_mode=False).detach().cpu().numpy()
+
+    def observe(event):
+        nonlocal episode, episode_return, updates, update_seconds
+        nxt,action,reward=event.next_observation,event.action,event.reward
+        terminated,truncated=event.terminated,event.truncated
+        if terminated or not np.isfinite(nxt).all() or not np.isfinite(reward) or not np.isfinite(action).all():
+            raise ValueError('Invalid training transition')
+        trajectory.append(td(nxt,action,reward,terminated));episode_return+=reward
+        if truncated:
+            if len(trajectory)!=c['horizon']+1:
+                raise ValueError('Unexpected episode horizon')
+            replay.add(torch.cat(trajectory));episode+=1
+            completed.append(dict(episode=episode,return_=episode_return,length=c['horizon']))
+        due=should_update(event.index+1,c,replay.num_eps)
+        if due:
+            torch.cuda.synchronize();begin=time.perf_counter()
+        raw=strategy.observe()
+        metrics={k:float(v.item()) if isinstance(v,torch.Tensor) else float(v) for k,v in raw.items()}
+        if not all(math.isfinite(v) for v in metrics.values()):
+            raise ValueError('Nonfinite joint training loss or diagnostics')
+        if due:
+            torch.cuda.synchronize();update_seconds+=time.perf_counter()-begin;updates+=1
+        return metrics
+
+    runner=AdaptationRunner(env,action,observe,horizon=c['horizon'],
+        initial_seed=identity['adaptation_seed'],
+        before_step=torch.compiler.cudagraph_mark_step_begin,
+        on_reset=on_reset,reset_on=lambda event: bool(event.truncated))
     try:
-        obs,_ = env.reset(seed=identity['adaptation_seed']); trajectory=[td(obs)]
         with (target/'training.jsonl').open('x') as log:
-            for transition in range(1,budget+1):
-                torch.compiler.cudagraph_mark_step_begin()
-                action=agent.act(torch.as_tensor(obs,dtype=torch.float32),t0=len(trajectory)==1,
-                                 eval_mode=False).detach().cpu().numpy()
-                nxt,reward,terminated,truncated,info=env.step(action)
-                if terminated or not np.isfinite(nxt).all() or not np.isfinite(reward) or not np.isfinite(action).all():
-                    raise ValueError('Invalid training transition')
-                trajectory.append(td(nxt,action,reward,terminated)); episode_return+=reward
-                if truncated:
-                    if len(trajectory)!=c['horizon']+1:
-                        raise ValueError('Unexpected episode horizon')
-                    replay.add(torch.cat(trajectory)); episode+=1
-                    completed.append(dict(episode=episode,return_=episode_return,length=c['horizon']))
-                metrics={}
-                if should_update(transition,c,replay.num_eps):
-                    torch.cuda.synchronize();begin=time.perf_counter()
-                    raw=agent.update(replay)
-                    metrics={k:float(v.item()) if isinstance(v,torch.Tensor) else float(v) for k,v in raw.items()}
-                    if not all(math.isfinite(v) for v in metrics.values()):
-                        raise ValueError('Nonfinite joint training loss or diagnostics')
-                    torch.cuda.synchronize();update_seconds+=time.perf_counter()-begin;updates+=1
+            def record(event,metrics):
+                transition=event.index+1
                 log.write(json.dumps(dict(transition=transition,updates=updates,episode=episode,
-                    replay_episodes=replay.num_eps,reward=reward,actual_parameter=env.readback(),
-                    terminated=bool(terminated),truncated=bool(truncated),metrics=metrics),allow_nan=False)+'\n')
+                    replay_episodes=replay.num_eps,reward=event.reward,actual_parameter=env.readback(),
+                    terminated=bool(event.terminated),truncated=bool(event.truncated),metrics=metrics),allow_nan=False)+'\n')
                 if transition%100==0:
                     log.flush();print(f'{identity}: {transition}/{budget} transitions, {updates} updates',flush=True)
-                obs=nxt
-                if truncated and transition<budget:
-                    obs,_=env.reset();trajectory=[td(obs)];episode_return=0.
+            runner.run(budget,record,close_env=False)
+        if strategy.transitions!=budget or strategy.updates!=updates:
+            raise ValueError('Joint strategy counters differ from stream counters')
         if updates!=expected_updates(budget,c):
             raise ValueError('Unexpected update count')
         after={k:tree_hash(getattr(agent.model,k).state_dict()) for k in COMPONENTS}
@@ -289,7 +311,8 @@ def evaluation_sources(training_manifest):
     recorded=training_manifest['source_hashes']
     runner=str(Path(__file__).relative_to(base.ROOT))
     for relative, expected in recorded.items():
-        if relative != runner and base.digest(base.ROOT/relative)!=expected:
+        if relative != runner and not compatible_sources(
+                {relative:expected},{relative:base.digest(base.ROOT/relative)}):
             raise ValueError(f'Training dependency changed after adaptation: {relative}')
     return dict(training_runner_sha256=recorded[runner],evaluation_runner_sha256=base.digest(__file__),
                 unchanged_training_dependencies=True)
@@ -505,7 +528,7 @@ def main():
         smoke=base.read(a.smoke_result/'completion.json')
         sm=base.read(a.smoke_result/'manifest.json')
         if (smoke['status']!='PASS' or sm['command']!='smoke' or
-                sm['source_hashes']!=sources(a.task) or sm['protocol']!=c or
+                not compatible_sources(sm['source_hashes'],sources(a.task)) or sm['protocol']!=c or
                 sm['checkpoint_sha256']!=checkpoint_sha):
             raise ValueError('Matching successful smoke is required')
         minimum=max(minimum,math.ceil(smoke['peak_reserved_mib']*1.5+2048))

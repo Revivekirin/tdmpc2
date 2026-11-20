@@ -14,11 +14,14 @@ from .audit import ParameterInvarianceAudit
 from .dynamics import DynamicsAdaptation
 from .decision import DecisionAdapter
 from .dynamics_critic import DynamicsCriticAdaptation
+from .runner import AdaptationRunner, TransitionEvent
+from .joint import JointAdaptation
 
 __all__ = [
     "AdaptationBinding", "AdaptationConfig", "AdaptationReplayBuffer",
     "AdaptationRunner", "AdaptationState", "AdaptationStrategy", "Method",
     "UpdateSchedule", "ParameterInvarianceAudit", "DynamicsAdaptation",
     "DecisionAdapter", "DynamicsCriticAdaptation",
+    "TransitionEvent", "JointAdaptation",
     "compose_adaptation",
 ]
