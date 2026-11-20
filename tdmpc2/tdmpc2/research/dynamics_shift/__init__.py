@@ -16,6 +16,8 @@ from .decision import DecisionAdapter
 from .dynamics_critic import DynamicsCriticAdaptation
 from .runner import AdaptationRunner, TransitionEvent
 from .joint import JointAdaptation
+from .checkpoints import CheckpointDescriptor, LoadedCheckpoint, load_checkpoint, model_hashes
+from .composer import CheckpointComposer, ComposedController
 
 __all__ = [
     "AdaptationBinding", "AdaptationConfig", "AdaptationReplayBuffer",
@@ -23,5 +25,7 @@ __all__ = [
     "UpdateSchedule", "ParameterInvarianceAudit", "DynamicsAdaptation",
     "DecisionAdapter", "DynamicsCriticAdaptation",
     "TransitionEvent", "JointAdaptation",
+    "CheckpointDescriptor", "LoadedCheckpoint", "load_checkpoint", "model_hashes",
+    "CheckpointComposer", "ComposedController",
     "compose_adaptation",
 ]

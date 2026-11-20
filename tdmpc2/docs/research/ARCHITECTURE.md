@@ -147,3 +147,19 @@ classDiagram
 | `common.stage3b.run`, `adapt_shift.episode` | unchanged | ManiSkill2 native-step resume and simulator state |
 
 New artifacts record current source hashes. `provenance.compatible_sources` accepts a pre-migration runner hash only when the corresponding current runner file matches its audited post-migration hash. All model, environment and configuration hashes remain exact. Historical manifests are never rewritten; older unlisted runner hashes require separate audit. The factory now binds `JointAdaptation` when supplied the original agent, replay and settings; `ExistingRunnerAdapter` remains a compatibility delegate for callers supplying only a complete historical `run_stream` callable. Native MPPI, evaluation runners, historical results and figures are unchanged.
+
+## Phase 2A checkpoint boundary
+
+`checkpoints.py` owns read-only nominal/Decision/D+Q/Joint format recognition, source identity, strict `WorldModel` restoration and component descriptors. `composer.py` owns only in-memory controller construction and component isolation. It neither replaces the existing CUDA `training_support.load_checkpoint` agent loader nor changes any production evaluation entry point. The historical format matrix, examples and online-versus-target Q distinction are in [CHECKPOINT_FORMATS.md](CHECKPOINT_FORMATS.md).
+
+```mermaid
+flowchart LR
+  FILES[Historical checkpoint files] --> LOADER[load_checkpoint]
+  LOADER --> DESC[CheckpointDescriptor + frozen WorldModel]
+  DESC --> COMPOSER[CheckpointComposer]
+  COMPOSER --> F[Frozen]
+  COMPOSER --> D[Dynamics-only / Decision]
+  COMPOSER --> DQ[Dynamics+Q]
+  COMPOSER --> SWAP[D+Q dynamics + nominal online Q]
+  COMPOSER --> J[Joint]
+```
