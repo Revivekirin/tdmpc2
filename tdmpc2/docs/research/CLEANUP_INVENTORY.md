@@ -61,3 +61,21 @@ TDMPC2_REPORT_RESULTS_ROOT=/tmp/tdmpc2-controlq-recovered/results/nsgym GIT_DIR=
 ```
 
 Actual server4 outcomes: **159 passed, 5 subtests passed** (57.85 s); **5 CUDA historical tests passed** (9.83 s); **26 NS-Gym physical tests passed** (5.23 s); and **1 historical reporting parity test passed** (137.43 s). The final test checked 11 CSV tables numerically at `atol=1e-12` and all 42 PNGs by byte hash against the legacy renderer. No test was reported skipped in those summaries. Historical artifacts and immutable fixtures were not rewritten. ManiSkill2/SAPIEN remains a separate unexecuted gate.
+
+## Phase 4B final deletion gate (2026-11-23)
+
+At HEAD `d129783`, the Git root has one worktree. `.DS_Store` and the pre-existing Phase 3B documentation/test edits are unrelated and remain untouched. A scan of Python imports, shell and Slurm commands, YAML, JSON, documentation, tests, and archived manifest descriptions confirms that **zero current files meet all six deletion requirements**. Phase 4B therefore removes no implementation file. In particular:
+
+| Classification | Candidate | Concrete active call or compatibility requirement | Missing deletion gate |
+|---|---|---|---|
+| KEEP | `experiments/nsgym/scripts/check_legacy.py` | `experiments/nsgym/README.md` runs its Gymnasium 0.29.1 and optional-environment import/task probe | No behaviorally equivalent probe or legacy-runtime parity |
+| KEEP | `experiments/nsgym/scripts/smoke.py` | README exposes four mode commands; this is a random-action physical readback probe, not training | No equivalent four-mode CLI/JSON contract |
+| KEEP | `experiments/nsgym/configs/train_{pusher,reacher}_pilot.yaml` | `test_pusher.py`, `test_reacher.py`, Pusher/Reacher guides and both Slurm job defaults use them | No replacement config with resolved-value parity |
+| KEEP | `scripts/{run_stage3b,run_stage3b2,stage3b_severity,stage3b2_audit,analyze_stage3b*,stage3b_results}.py` | `calibrate_physical_severity.py`, `run_stage3b2.py`, `analyze_stage3b2.py`, stage tests and archived ManiSkill2 command guides call them | No public CLI/native-step/manifest parity in ManiSkill2/SAPIEN |
+| KEEP | `tdmpc2/common/{stage3a,decision_ttt,dynamics_q}.py` | `adapt_shift.py`, NS-Gym runners, analysis and golden tests still import these names | Public import contract has active callers |
+| KEEP | `experiments/nsgym/analysis/control_q/*.py` and numerical NS-Gym analysis helpers | `control_q.run`, `ReportBuilder`, analysis scripts and tests use their functions; source hashes and original CLI remain authoritative | Historical source and output contracts require them |
+| MERGE LATER | Outer `scripts/*.py` versus inner `tdmpc2/scripts/*.py` (22 matching pairs) | All 22 pairs have equal bytes, yet both relative command paths appear in tests, docs and archived manifests | Path-specific callers and ManiSkill2 runtime parity have not been replaced |
+
+The historical report is not a basis for deleting a script merely because an earlier inventory labeled an individual function `DELETE`; for example, `experiments/nsgym/scripts/analyze_q_planning.py` still supplies `make_model`, inference, bank aggregation and a documented public CLI. The source-hash-sensitive `training_support.py` and `control_q/models.py` also remain byte-identical to their historical versions. The exact Phase 4B decision and validation record are in [REFACTOR_FINAL_REPORT.md](REFACTOR_FINAL_REPORT.md).
+
+Phase 4B reran the unchanged local code: the 23-file canonical/golden suite reported **150 passed, 5 subtests passed in 43.30 s**; additional stage/CLI contract tests reported **39 passed, 25 subtests passed in 26.28 s**; and the authentic-source historical report test reported **1 passed in 101.22 s**. The historical test asserts 36 conditions, 108 streams, 11 common CSV numerical comparisons and 42 PNG hash comparisons. The immediately preceding Phase 4A server4 candidate ran the same runtime code with **159 general, 5 CUDA, 26 NS-Gym physical and 1 historical reporting test passed**; Phase 4B made no runtime code changes. No new Phase 4B server run or ManiSkill2/SAPIEN run is claimed.
