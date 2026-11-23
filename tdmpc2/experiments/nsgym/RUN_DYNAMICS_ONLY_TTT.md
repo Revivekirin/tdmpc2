@@ -6,6 +6,10 @@ Run manually in tdmpc2-nsgym from the inner project root `/home/jhkim/repos/tdmp
 
 ## Location and CLI
 
+The original server command used `/nfs4/jhkim/repos/tdmpc2` for `CHECKPOINT`,
+`REFERENCE`, and `OUT`. Use that mount prefix if it is the path to the same
+result tree on your server.
+
 ```bash
 cd /home/jhkim/repos/tdmpc2
 RUNNER=experiments/nsgym/scripts/run_dynamics_only_ttt.py
