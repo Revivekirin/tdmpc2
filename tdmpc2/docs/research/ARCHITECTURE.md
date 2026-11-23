@@ -198,3 +198,16 @@ flowchart LR
   PA --> DIAG[Predicted score and rank diagnostics]
   ER[EvaluationRunner] --> REAL[Observed environment return]
 ```
+## Phase 3B reporting boundary
+
+The read-only `research.dynamics_shift.reporting` package now owns explicit source roots, canonical evidence labels, statistical dispatch, numerical figure inputs and report assembly. It calls the unchanged NS-Gym unified and control-Q calculations and renderers. See [REPORTING_PIPELINE.md](REPORTING_PIPELINE.md) for the source-to-output matrix, distinct bootstrap policies, 36-condition/108-stream control-Q contract and `NOT_MEASURED` rule. Legacy CLIs retain their current import paths and schemas; TD-MPC2 model, adaptation, evaluation and native planner code are outside this reporting layer.
+
+```mermaid
+flowchart LR
+  RAW[Immutable completed sources] --> VALID[Historical discovery and hash gates]
+  VALID --> REC[Canonical measurement and evidence]
+  REC --> MET[Original family-specific metrics and statistics]
+  MET --> DATA[Numerical figure data]
+  DATA --> RENDER[Original renderers to new output]
+  RENDER --> MANIFEST[Coverage and source provenance]
+```
