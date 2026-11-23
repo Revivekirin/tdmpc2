@@ -1,5 +1,7 @@
 # TD-MPC2 dynamics-shift refactor: final Phase 4B report
 
+**Phase 4C continuation:** This document records the final **Phase 4B** decision at that time. A later, explicit physical deduplication removed 123 outer mirror files (6,582,535 bytes) while retaining the inner executable project. See [PHASE4C_DEDUPLICATION_REPORT.md](PHASE4C_DEDUPLICATION_REPORT.md) and its per-file inventory for the current tree and validation status. The Phase 4B statement “Files removed: none” remains true for Phase 4B only.
+
 Audit date: 2026-11-23. Repository root: `/Users/jihyekim/Desktop/tdmpc2`; active project: its inner `tdmpc2/`; starting HEAD `d129783`, branch `main`, one Git worktree. The pre-existing `.DS_Store`, Phase 3B reporting documentation/test edits and untracked historical-recovery document were not staged or changed for this cleanup.
 
 ## Final architecture and ownership

@@ -1,5 +1,9 @@
 # Phase 4A conservative cleanup inventory
 
+## Phase 4C physical disposition
+
+The earlier Phase 4A/4B decisions below describe those earlier phases. Phase 4C completed a new root and caller audit, migrated the maintained root README entry point, and physically removed 123 outer mirror files totaling 6,582,535 bytes. The [exact 134-row inventory](PHYSICAL_DEDUPLICATION_INVENTORY.csv) records all outer/inner comparisons and the exact paths removed. The [Phase 4C report](PHASE4C_DEDUPLICATION_REPORT.md) describes the remaining 11 outer paths, active canonical commands, retained legacy interfaces and regression boundary. The original inner algorithms and source-hash-sensitive historical modules were not changed.
+
 Audit date: 2026-11-23. Git root: `/Users/jihyekim/Desktop/tdmpc2`; starting HEAD `87b5a68`, branch `main`, one active worktree. The pre-existing `.DS_Store` edit and Phase 3B documentation/test edits were preserved. No result, golden fixture, original TD-MPC2 algorithm, simulator, adaptation, evaluation, planning or reporting calculation was changed.
 
 ## Ownership and verified consolidation
