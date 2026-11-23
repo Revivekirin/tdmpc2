@@ -1,5 +1,7 @@
 # Dynamics-shift research architecture — Phase 1B-3
 
+For Phase 4A utility and inspection ownership, including retained source-hash-sensitive tree digests and the shared `inspection_common.py` flow, see [CLEANUP_INVENTORY.md](CLEANUP_INVENTORY.md). The original training and control-Q `tree_hash` implementations remain in their original files because full evaluation compares implementation source hashes across smoke and full runs. Pusher and Reacher inspection keep their public CLIs and task-specific summaries; only shared seed/evaluation/CSV orchestration moved to `experiments/nsgym/scripts/inspection_common.py`.
+
 The active inner project owns adaptation in `tdmpc2/research/dynamics_shift/`. The original TD-MPC2 agent, planner and training buffer are unchanged. Joint learning is invoked through `JointAdaptation`, which calls the original `TDMPC2.update(replay)`. NS-Gym and ManiSkill2 runtime imports remain separate.
 
 ```text
