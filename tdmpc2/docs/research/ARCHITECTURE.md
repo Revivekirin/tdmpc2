@@ -183,3 +183,18 @@ flowchart LR
 ```
 
 Frozen, Dynamics-only, D+Q, Reacher and control-Q historical CLI paths still own their distinct episode loops or `ttt.rollout` calls; their source-hash contracts need audited parity before migration. ManiSkill2 `evaluate.py`, `evaluate_shift.py` and `evaluate_severity.py` retain native-step/action-repeat behavior in the separate runtime. The complete protocol matrix, planner RNG policy, bank and intervention contracts are in [EVALUATION_PROTOCOLS.md](EVALUATION_PROTOCOLS.md). Phase 2B migration is partial and does not assert ManiSkill2 simulator parity.
+
+## Phase 3A planning analysis
+
+`planning_analysis.py` is the read-only canonical entry point for fixed candidate scoring, latent error, terminal-Q attribution, ranking policies, Q-swap score isolation and native trace verification. Fixed scoring invokes the unchanged `TDMPC2._estimate_value`; native MPPI traces still originate from the unchanged `TDMPC2._plan`. `CheckpointComposer` supplies verified A/B/C model identities, while `EvaluationRunner` owns only actual environment control. The old NS-Gym and ManiSkill2 analysis entry points remain in place for historical source and output compatibility. [PLANNING_ANALYSIS.md](PLANNING_ANALYSIS.md) records the source ownership matrix, tensor shapes, stochastic planner path and unmeasured quantities.
+
+```mermaid
+flowchart LR
+  HIST[Historical analysis CLIs] --> LEGACY[Original source and output contracts]
+  CP[CheckpointComposer] --> MODELS[Verified A/B/C models]
+  MODELS --> PA[Read-only planning_analysis]
+  BANK[Verified fixed candidate bank] --> PA
+  NATIVE[Unchanged TD-MPC2 _estimate_value / _plan] --> PA
+  PA --> DIAG[Predicted score and rank diagnostics]
+  ER[EvaluationRunner] --> REAL[Observed environment return]
+```

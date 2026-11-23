@@ -90,6 +90,7 @@ class MechanismTests(unittest.TestCase):
         a = agent(load_planner())
         cfg = a.cfg
         cfg.analysis=options(); cfg.checkpoint='fake.pt'; cfg.task='fake'
+        cfg.evaluation={'policy_eval_mode': False}
         cfg.dynamics_shift={'parameter':{'type':'action_delay'}}; cfg.schedule={'type':'fixed'}
         space=types.SimpleNamespace(shape=(2,),low=-np.ones(2),high=np.ones(2))
         digest=model_checksum(a.model)

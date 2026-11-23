@@ -23,6 +23,11 @@ from .evaluation import (
     EvaluationStep, EpisodeResult, FixedBankResult, aligned_transitions,
     critic_intervention_controllers, evaluate_fixed_bank, require_bank,
 )
+from .planning_analysis import (
+    FixedCandidateAnalysis, candidate_rank_comparison, candidate_sha256,
+    controlled_q_score_difference, latent_prediction_diagnostics,
+    native_trace_diagnostics, score_fixed_candidates, terminal_value_decomposition,
+)
 
 __all__ = [
     "AdaptationBinding", "AdaptationConfig", "AdaptationReplayBuffer",
@@ -35,5 +40,8 @@ __all__ = [
     "EvaluationCallbacks", "EvaluationConfig", "EvaluationIdentity",
     "EvaluationRunner", "EvaluationStep", "EpisodeResult", "FixedBankResult",
     "aligned_transitions", "critic_intervention_controllers", "evaluate_fixed_bank", "require_bank",
+    "FixedCandidateAnalysis", "candidate_rank_comparison", "candidate_sha256",
+    "controlled_q_score_difference", "latent_prediction_diagnostics",
+    "native_trace_diagnostics", "score_fixed_candidates", "terminal_value_decomposition",
     "compose_adaptation",
 ]
