@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 import sys
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -88,6 +89,9 @@ def test_fixed_candidate_negative_contracts(inputs):
     wrong.num_bins = 7
     with pytest.raises(ValueError, match="Model/planner num_bins"):
         score_fixed_candidates(**(kwargs | {"cfg": wrong}))
+    with patch.object(network, "reward", return_value=torch.full((8, network.cfg.num_bins), float("nan"))):
+        with pytest.raises(ValueError, match="Nonfinite native candidate score"):
+            score_fixed_candidates(**kwargs)
 
 
 def test_q_swap_isolates_online_critic_on_same_candidates(inputs):
@@ -156,3 +160,7 @@ def test_native_planner_trace_matches_observer_and_rng(inputs):
     assert torch.equal(rng, torch.get_rng_state())
     with pytest.raises(ValueError, match="selected action"):
         native_trace_diagnostics(trace, action + 1, new_warm, cfg)
+    invalid = deepcopy(cfg)
+    invalid.num_pi_trajs = cfg.num_samples + 1
+    with pytest.raises(ValueError, match="configuration"):
+        native_trace_diagnostics(trace, action, new_warm, invalid)

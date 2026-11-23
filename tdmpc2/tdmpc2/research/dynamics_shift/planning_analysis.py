@@ -248,7 +248,10 @@ def native_trace_diagnostics(trace: Any, action: Any, warm_start: Any, cfg: Any)
     """
     import torch
 
-    if not trace.rows or cfg.num_elites < 1 or cfg.num_elites > cfg.num_samples:
+    if (not trace.rows or cfg.horizon < 1 or cfg.num_samples < 1 or
+            cfg.num_pi_trajs < 0 or cfg.num_pi_trajs > cfg.num_samples or
+            cfg.num_elites < 1 or cfg.num_elites > cfg.num_samples or
+            not np.isfinite(cfg.temperature)):
         raise ValueError("Invalid native planner trace/configuration")
     diagnostics = []
     for row in trace.rows:
