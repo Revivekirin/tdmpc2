@@ -1,27 +1,16 @@
 """Evaluate a frozen nominal Reacher checkpoint on independent paired seeds."""
-import argparse
 from pathlib import Path
 
 import numpy as np
 
-from research_utils import bootstrap, csv_rows, digest, output_dir, write_json
+from inspection_common import collect_inspection, parse_inspection_args
+from research_utils import bootstrap, digest, write_json
 from training_support import evaluate, load_checkpoint
 
 
 def inspect(checkpoint, output, episodes=10):
-    if episodes < 2:
-        raise ValueError('At least two evaluation seeds are required')
-    agent, meta = load_checkpoint(checkpoint)
-    if meta['config']['task'] != 'nsgym-reacher':
-        raise ValueError('Reacher checkpoint required')
-    seeds = list(range(20000001, 20000001 + episodes))
-    policy, _ = evaluate(agent, meta['config'], seeds)
-    random, _ = evaluate(None, meta['config'], seeds, random_actions=True)
-    zero, _ = evaluate(None, meta['config'], seeds, zero_actions=True)
-    out = output_dir(output)
-    csv_rows(out / 'policy.csv', policy)
-    csv_rows(out / 'random.csv', random)
-    csv_rows(out / 'zero_action.csv', zero)
+    out, meta, seeds, policy, random, zero = collect_inspection(
+        checkpoint, output, episodes, 'nsgym-reacher', load_checkpoint, evaluate)
     gains = np.array([p['episode_return'] - r['episode_return']
                       for p, r in zip(policy, random)])
     def average(rows, key):
@@ -47,11 +36,7 @@ def inspect(checkpoint, output, episodes=10):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--checkpoint', type=Path, required=True)
-    parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--episodes', type=int, default=10)
-    args = parser.parse_args()
+    args = parse_inspection_args(__doc__)
     print(inspect(args.checkpoint, args.output, args.episodes))
 
 
