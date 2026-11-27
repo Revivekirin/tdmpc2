@@ -9,7 +9,7 @@ import torch
 
 from common import math
 from .audit import ParameterInvarianceAudit, equal_state
-from .objectives import one_step_dynamics_mse
+from .objectives import DEFAULT_OBJECTIVES, ObjectiveHooks
 from .replay import AdaptationReplayBuffer
 from .schedule import UpdateSchedule, expected_updates
 
@@ -20,9 +20,10 @@ class DynamicsCriticAdaptation:
     Q sees detached *actual* latents. It never trains encoder/dynamics/reward/pi.
     Observing an explicit final next observation avoids crossing reset boundaries.
     """
-    def __init__(self, agent, config, identity):
+    def __init__(self, agent, config, identity, *, objectives: ObjectiveHooks | None = None):
         self.agent, self.model, self.config = agent, agent.model, dict(config)
         self.identity = dict(identity)
+        self.objectives = DEFAULT_OBJECTIVES if objectives is None else objectives
         self.device = next(self.model.parameters()).device
         self.model.requires_grad_(False)
         self.model._dynamics.requires_grad_(True)
@@ -96,10 +97,9 @@ class DynamicsCriticAdaptation:
             # Original method: real reward + gamma*(1-terminal)*min(two target heads).
             target = self.agent._td_target(next_z, reward, terminal, None)
         assert target.shape == reward.shape and torch.isfinite(target).all()
-        dyn = one_step_dynamics_mse(self.model, z, action, next_z)
-        logits = self.model.Q(z.detach(), action, None, return_type='all')
+        dyn = self.objectives.dynamics(self.model, z, action, next_z)
+        q, logits = self.objectives.critic(self.model, z, action, target, self.agent.cfg)
         assert logits.shape == (self.agent.cfg.num_q, len(batch), self.agent.cfg.num_bins)
-        q = torch.stack([math.soft_ce(head, target, self.agent.cfg).mean() for head in logits]).mean()
         assert torch.isfinite(dyn) and torch.isfinite(q)
         return dyn, q, logits, target
 
