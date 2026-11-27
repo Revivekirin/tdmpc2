@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import hashlib
 
 import pandas as pd
 import numpy as np
@@ -14,6 +15,7 @@ sys.path.insert(0, str(PROJECT / "tdmpc2"))
 
 from experiments.nsgym.analysis.control_q.data import load_inputs
 from experiments.nsgym.analysis.control_q.figures import _terminal_table
+from experiments.nsgym.analysis.control_q.run import main as legacy_report_main
 from research.dynamics_shift.reporting import ReportBuilder, ReportingConfig
 
 
@@ -31,7 +33,20 @@ def test_historical_control_q_report_figure_data_and_rendering(tmp_path):
     assert report["legacy_validation"]["figure_png_count"] == 42
     assert len(list((output / "figures").rglob("*.png"))) == 42
     assert json.loads((output / "REPORT_STATUS.json").read_text())["closed_loop_critic_effect"] == "NOT_MEASURED"
-    assert pd.read_csv(output / "canonical_records.csv").measurement_status.eq("NOT_MEASURED").sum() == 1
+    canonical = pd.read_csv(output / "canonical_records.csv")
+    assert canonical.measurement_status.eq("NOT_MEASURED").sum() == 1
+    for name in ("control", "ranking", "native", "effects", "returns"):
+        original = tables[name].reset_index(drop=True)
+        recovered = canonical.loc[canonical.source_table.eq(name), original.columns].reset_index(drop=True)
+        pd.testing.assert_frame_equal(recovered, original, check_dtype=False,
+                                      check_exact=False, rtol=0, atol=1e-12)
+    for column in ("return", "fixed_encoder_latent_mse"):
+        original = tables["evidence"][column].dropna().reset_index(drop=True)
+        recovered = canonical.loc[canonical.source_table.eq("evidence") &
+                                  canonical.original_column.eq(column), "value"].reset_index(drop=True)
+        pd.testing.assert_series_equal(recovered, original, check_dtype=False,
+                                       check_names=False, check_exact=False,
+                                       rtol=0, atol=1e-12)
 
     # Reconstruct the historical figure's input arrays independently from the
     # canonical output path; preserve original order, CI policy and labels.
@@ -55,3 +70,25 @@ def test_historical_control_q_report_figure_data_and_rendering(tmp_path):
     for key in ("mean", "median", "ci_low", "ci_high"):
         np.testing.assert_allclose(merged[f"{key}_new"], merged[f"{key}_old"],
                                    rtol=0, atol=1e-12)
+
+    # The original public reporting CLI is the figure-data and rendering
+    # reference. Run it only into a fresh temporary directory, then compare
+    # every common CSV and every rendered PNG against the canonical output.
+    legacy = tmp_path / "legacy-report"
+    legacy_report_main(["--mode", "all", "--results-root", str(root),
+                        "--output", str(legacy)])
+    common_csv = {path.name for path in legacy.glob("*.csv")} & {
+        path.name for path in output.glob("*.csv")}
+    assert len(common_csv) == 11
+    for name in sorted(common_csv):
+        pd.testing.assert_frame_equal(pd.read_csv(output / name),
+                                      pd.read_csv(legacy / name),
+                                      check_dtype=False, check_exact=False,
+                                      rtol=0, atol=1e-12)
+    def image_hashes(directory):
+        return {path.relative_to(directory).as_posix():
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in directory.rglob("*.png")}
+    canonical_pngs = image_hashes(output / "figures")
+    assert len(canonical_pngs) == 42
+    assert canonical_pngs == image_hashes(legacy / "figures")
