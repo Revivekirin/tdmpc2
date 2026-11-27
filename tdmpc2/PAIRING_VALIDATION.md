@@ -1,1 +1,0 @@
-archive/legacy_maniskill2/PAIRING_VALIDATION.md

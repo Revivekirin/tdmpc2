@@ -1,1 +1,0 @@
-../archive/legacy_maniskill2/docs/stage3b_shift_selection.md

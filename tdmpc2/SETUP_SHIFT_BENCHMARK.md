@@ -1,1 +1,0 @@
-archive/legacy_maniskill2/SETUP_SHIFT_BENCHMARK.md
