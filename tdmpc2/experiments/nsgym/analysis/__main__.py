@@ -1,13 +1,14 @@
 """Authoritative read-only NS-Gym analysis interface; no model/environment execution."""
 import argparse
 import importlib
+import json
 from pathlib import Path
 import sys
 from .schema import read_required
 from . import sources
 
 OPERATIONS=('discover','inventory','validate','nominal','physical','frozen','adaptation','q_distribution',
-            'planning','cross_task','full','research_review','cleanup_preview')
+            'planning','cross_task','full','research_review','study','cleanup_preview')
 FORMATS={'ttt':'ttt','budgets':'budgets','severity':'physical','reacher':'reacher','diagnostics':'diagnostics'}
 
 
@@ -24,6 +25,7 @@ def main(argv=None):
     parser.add_argument('--results-root','--source-root',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--config',type=Path,default=Path(__file__).with_name('config.json'))
+    parser.add_argument('--study-config',type=Path,default=Path(__file__).resolve().parents[1]/'configs/study.json')
     parser.add_argument('--no-plots',action='store_true')
     parser.add_argument('--review-package',type=Path,help='Completed Reacher DQ CSV review package; snapshot byte verification is explicitly unavailable')
     parser.add_argument('--shift-family',default='all')
@@ -41,6 +43,7 @@ def main(argv=None):
     sources.SOURCES.clear();sources.SOURCES.update(config['tasks'])
     if a.task!='all' and a.task not in sources.SOURCES:parser.error('Task not registered in config.sources')
     if a.methods != 'all' and not set(a.methods.split(',')) <= set(config['methods']):parser.error('Unregistered method')
+    if a.operation=='study' and a.format:parser.error('study does not accept --format')
     if a.format:
         module=importlib.import_module('.'+FORMATS[a.format],__package__)
         contracts=config.get('historical_adapters', {})
@@ -58,6 +61,15 @@ def main(argv=None):
         return
     if adapter_args:parser.error('Arguments after -- require --format')
     from . import engine
+    if a.operation=='study':
+        sys.path.insert(0,str(Path(__file__).resolve().parents[3]/'tdmpc2'))
+        from research.dynamics_shift.reporting import ReportBuilder, ReportingConfig
+        study_config=read_required(a.study_config)
+        result=ReportBuilder(a.results_root or engine.DEFAULT_RESULTS,
+                             ReportingConfig(family='study',study_config=study_config)).build(
+                                 a.output,render=not a.no_plots)
+        print(json.dumps(result,indent=2))
+        return
     if a.operation=='cleanup_preview':
         raise ValueError('Cleanup is not part of the read-only raw-to-report pipeline')
     if a.operation=='research_review':

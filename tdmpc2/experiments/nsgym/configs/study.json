@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "title": "Action-conditioned world-model adaptation under physical dynamics shifts",
+  "nominal_checkpoint_sha256": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b",
+  "nominal_checkpoint_path": "nominal-server4-20261108-nohup-01/checkpoint-000750000/model.pt",
+  "adaptation_protocols": ["matched_replay", "online"],
+  "dynamics_objectives": ["one_step_dynamics_consistency", "multi_step_imagined_dynamics_consistency"],
+  "critic_objectives": ["replay_encoded_critic", "imagined_multi_position_critic"],
+  "interaction_budget": 3000,
+  "dynamics_shift": {
+    "task": "nsgym-halfcheetah",
+    "schedule": "fixed",
+    "parameters": ["bthigh_damping", "torso_mass"],
+    "severities": [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+  },
+  "historical_references": {
+    "frozen": {
+      "evaluation_manifest": "physical-severity-750k-v1/frozen/manifest.json",
+      "evaluation_completion": "physical-severity-750k-v1/frozen/completion.json"
+    },
+    "dynamics_only": {
+      "checkpoint": "dynamics-only-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-decision-seed42000001/snapshot-0003000.pt",
+      "checkpoint_sha256": "a708f029a8bb0153323e502f8183729268d682b1f2c05eae6988f63e1b065680",
+      "training_manifest": "dynamics-only-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-decision-seed42000001/manifest.json",
+      "training_completion": "dynamics-only-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-decision-seed42000001/completion.json",
+      "evaluation_manifest": "dynamics-only-750k-v1/final-snapshot-v2/shifted/manifest.json",
+      "evaluation_completion": "dynamics-only-750k-v1/final-snapshot-v2/shifted/completion.json",
+      "evaluation_leaf_manifest": "dynamics-only-750k-v1/final-snapshot-v2/shifted/bthigh_damping-k0.5-decision-seed42000001/manifest.json",
+      "evaluation_leaf_completion": "dynamics-only-750k-v1/final-snapshot-v2/shifted/bthigh_damping-k0.5-decision-seed42000001/completion.json"
+    },
+    "dynamics_q": {
+      "checkpoint": "dynamics-q-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-dynamics-q-seed42000001/snapshot-0003000.pt",
+      "checkpoint_sha256": "2ad1d390280231bdac4a7eabff458ac77db8276f49034207999cabdbd16f75f8",
+      "training_manifest": "dynamics-q-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-dynamics-q-seed42000001/manifest.json",
+      "training_completion": "dynamics-q-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-dynamics-q-seed42000001/completion.json",
+      "evaluation_manifest": "dynamics-q-750k-v1/shifted/manifest.json",
+      "evaluation_completion": "dynamics-q-750k-v1/shifted/completion.json",
+      "evaluation_leaf_completion": "dynamics-q-750k-v1/shifted/bthigh_damping-k0.5-dynamics-q-seed42000001/completion.json"
+    },
+    "joint": {
+      "checkpoint": "full-joint-750k-v1/runs-fixed/bthigh_damping-k0.5-full-joint-seed42000001/snapshot-0003000.pt",
+      "checkpoint_sha256": "975af0ce063661372d89bc0f9d8f6f52d8175ecf77e15f481f2b461920e3bc62",
+      "training_manifest": "full-joint-750k-v1/runs-fixed/manifest.json",
+      "training_completion": "full-joint-750k-v1/runs-fixed/completion.json",
+      "training_leaf_manifest": "full-joint-750k-v1/runs-fixed/bthigh_damping-k0.5-full-joint-seed42000001/manifest.json",
+      "training_leaf_completion": "full-joint-750k-v1/runs-fixed/bthigh_damping-k0.5-full-joint-seed42000001/completion.json",
+      "evaluation_manifest": "joint-final-evaluation-v1/shifted/manifest.json",
+      "evaluation_completion": "joint-final-evaluation-v1/shifted/completion.json",
+      "evaluation_leaf_completion": "joint-final-evaluation-v1/shifted/bthigh_damping-k0.5-full-joint-seed42000001/completion.json"
+    }
+  }
+}

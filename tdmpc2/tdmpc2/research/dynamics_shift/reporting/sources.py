@@ -20,7 +20,10 @@ def validate_record_sources(root: Path, records: Iterable[dict]) -> dict[str, st
         if not path.is_relative_to(root) or not path.is_file():
             raise ValueError(f"Source outside explicit root or missing: {relative}")
         expected = row["source_sha256"]
-        actual = seen.setdefault(relative.as_posix(), sha256(path))
+        key = relative.as_posix()
+        if key not in seen:
+            seen[key] = sha256(path)
+        actual = seen[key]
         if actual != expected:
             raise ValueError(f"Historical source hash mismatch: {relative}")
     return seen
