@@ -1,0 +1,87 @@
+{
+  "checkpoint_fixture": "tests/fixtures/research_checkpoint_compatibility.json",
+  "nominal_checkpoint_sha256": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b",
+  "notes": [
+    "Historical source hashes describe the source revisions recorded by each manifest; compatibility re-exports changed later.",
+    "No Reacher real checkpoint is selected by this manifest."
+  ],
+  "numerical_fixture": "tests/fixtures/research_numerical_baselines.json",
+  "numerical_fixture_linux_cuda": "tests/fixtures/research_numerical_baselines_linux_x86_64_torch_2_14_0_cu126.json",
+  "reference_root": "results/nsgym",
+  "references": {
+    "dynamics_only": {
+      "files": {
+        "checkpoint": {
+          "path": "results/nsgym/dynamics-only-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-decision-seed42000001/snapshot-0003000.pt",
+          "sha256": "a708f029a8bb0153323e502f8183729268d682b1f2c05eae6988f63e1b065680"
+        },
+        "completion": {
+          "path": "results/nsgym/dynamics-only-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-decision-seed42000001/completion.json",
+          "sha256": "7c5395a685cce385b0f29554119fc64fb938a49c2e3c6e2e5f14fb7f87ff9fc0"
+        },
+        "manifest": {
+          "path": "results/nsgym/dynamics-only-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-decision-seed42000001/manifest.json",
+          "sha256": "4b77f2cecdd8a49851d5f09137199d7ea915b77de7b6d3739ab22e4a4ee018ef"
+        }
+      },
+      "status": "VERIFIED_LOCAL_SOURCE_AND_MANIFEST"
+    },
+    "dynamics_q": {
+      "files": {
+        "checkpoint": {
+          "path": "results/nsgym/dynamics-q-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-dynamics-q-seed42000001/snapshot-0003000.pt",
+          "sha256": "2ad1d390280231bdac4a7eabff458ac77db8276f49034207999cabdbd16f75f8"
+        },
+        "completion": {
+          "path": "results/nsgym/dynamics-q-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-dynamics-q-seed42000001/completion.json",
+          "sha256": "804fa6c43500e38b49a17ae78e656f325896b1bddc497faef2071c4205099876"
+        },
+        "manifest": {
+          "path": "results/nsgym/dynamics-q-750k-v1/runs/fixed-decision/bthigh_damping-k0.5-dynamics-q-seed42000001/manifest.json",
+          "sha256": "c2464658a0cd23ba41883e7b07ab74e23440807d441b8b50062de8b081c1ce8d"
+        }
+      },
+      "status": "VERIFIED_LOCAL_SOURCE_AND_MANIFEST"
+    },
+    "frozen": {
+      "files": {
+        "completion": {
+          "path": "results/nsgym/physical-severity-750k-v1/frozen/completion.json",
+          "sha256": "750c539db0099e4381cadcd1c12bf7ff10ba8047e5b8250617128dc5fcd9e7b6"
+        },
+        "manifest": {
+          "path": "results/nsgym/physical-severity-750k-v1/frozen/manifest.json",
+          "sha256": "12760d65b7f18fb04bf4635052269c0085ee7ee1e9cc8d12a11f068d60936e8d"
+        }
+      },
+      "status": "VERIFIED_LOCAL_SOURCE_AND_MANIFEST"
+    },
+    "nominal": {
+      "files": {
+        "checkpoint": {
+          "path": "results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000/model.pt",
+          "sha256": "f44afd1992e194fd0d70b766398de7ad3d0ca880c55b46e3b8c34ad9dade013b"
+        },
+        "metadata": {
+          "path": "results/nsgym/nominal-server4-20261108-nohup-01/checkpoint-000750000/metadata.json",
+          "sha256": "c982acacee176ee0a59f876b14d517e8ab0cdf7813aa3a79234c6b1442cecd88"
+        }
+      },
+      "status": "VERIFIED_LOCAL_SOURCE_AND_MANIFEST"
+    },
+    "planner": {
+      "files": {
+        "completion": {
+          "path": "results/nsgym/mechanism-analysis-750k-v1/provenance/completion.json",
+          "sha256": "9b494a2168a35006dbcdb7bc25503e1d3569f2d73fad31530c4180a55df497b1"
+        },
+        "input_manifest": {
+          "path": "results/nsgym/mechanism-analysis-750k-v1/provenance/input_manifest.json",
+          "sha256": "3299c502461ee0a7fe2b592464706f41f5a1c8775f61862603a9256f8ba30d75"
+        }
+      },
+      "status": "VERIFIED_COMPLETION_AND_INPUT_MANIFEST; NUMERICAL_FIXTURE_SEPARATE"
+    }
+  },
+  "schema": 1
+}
