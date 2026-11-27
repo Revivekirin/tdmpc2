@@ -95,8 +95,8 @@ def test_one_update_parameters_optimizers_ema_and_held_out_state():
             assert equal_state(actual.dynamics_optimizer.state_dict(),
                                expected.dynamics_optimizer.state_dict())
             assert equal_state(actual.q_optimizer.state_dict(), expected.q_optimizer.state_dict())
-            assert actual.last_metrics["dynamics_loss"] == pytest.approx(float(dynamics_loss), rel=1e-6)
-            assert actual.last_metrics["q_loss"] == pytest.approx(float(q_loss), rel=1e-6)
+            assert actual.last_metrics["dynamics_loss"] == pytest.approx(float(dynamics_loss.detach()), rel=1e-6)
+            assert actual.last_metrics["q_loss"] == pytest.approx(float(q_loss.detach()), rel=1e-6)
             assert equal_state(actual.fixed_state(), fixed_before)
             for key, value in actual_agent.model._target_Qs_params.state_dict().items():
                 if isinstance(value, torch.Tensor):

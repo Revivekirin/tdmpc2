@@ -221,6 +221,8 @@ def test_cuda_historical_adaptation_production_loaders():
 def test_cuda_dynamics_q_real_bank_update_and_cpu_parity():
     require_server(NOMINAL/'metadata.json', BANK, FROZEN/'dataset_index.json')
     obs, actions, rewards, actual = bank_arrays()
+    # The CLI initializes these module globals before calling load_agent().
+    dynamics_only.dependencies()
     agent, _ = dynamics_only.load_agent(SimpleNamespace(checkpoint=NOMINAL, synthetic=False))
     config, _ = dynamics_q.configuration()
     identity = dict(parameter='bthigh_damping', severity=.5, adaptation_seed=42000001,
